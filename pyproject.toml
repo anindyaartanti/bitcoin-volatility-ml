@@ -1,0 +1,11 @@
+[project]
+name = "bitcoin-volatility-ml"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "kafka-python>=2.3.1",
+    "python-dotenv>=1.2.2",
+    "websocket-client>=1.9.0",
+]
