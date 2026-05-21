@@ -1,95 +1,40 @@
-# ====================
-# Python & uv
-# ====================
+# ─── Credentials & Secrets ───────────────────────────────────
+.env
+security/nginx/.htpasswd
+security/nginx/*.crt
+security/nginx/*.key
 
-# Virtual environment
-.venv/
-venv/
-ENV/
-env/
-
-# Byte-compiled / optimized / DLL files
+# ─── Python ──────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
-*$py.class
-
-# Distribution / packaging
+*.egg-info/
+.venv/
+venv/
 dist/
 build/
-*.egg-info/
-*.egg
 
-# PyCharm, VS Code, IDE
+# ─── Data & Artefak ──────────────────────────────────────────
+data/*.parquet
+data/*.csv
+notebooks/.ipynb_checkpoints/
+
+# ─── Docker ──────────────────────────────────────────────────
+# Log Docker tidak perlu di-commit
+
+# ─── IDE ─────────────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
-*.swo
 
-# ====================
-# Environment & Secrets
-# ====================
-.env
-.env.*
-!.env.example
-security/nginx/.htpasswd
-security/nginx/nginx.key
-security/nginx/nginx.crt
+# ─── MLflow ──────────────────────────────────────────────────
+mlruns/
+mlflow/
 
-# ====================
-# Data & Storage
-# ====================
-# Data sampel boleh di-commit, tapi dataset besar tidak
-data/*.parquet
-data/*.csv
-data/*.json
-# Kecuali sample
-!data/sample_reddit.parquet
+# ─── DVC ─────────────────────────────────────────────────────
+/tmp/
+.dvc/cache/
 
-# Data lake lokal (MinIO volume mount)
-minio_data/
-dvc-store/
-
-# Spark checkpoints
-spark-checkpoints/
-checkpoints/
-*.crc
-
-# ====================
-# Logs
-# ====================
-logs/
+# ─── Log ─────────────────────────────────────────────────────
 *.log
-*.log.*
-
-# ====================
-# OS files
-# ====================
-.DS_Store
-Thumbs.db
-
-# ====================
-# Docker (opsional)
-# ====================
-# Volume mount untuk development
-docker-data/
-
-# ====================
-# Temporary files
-# ====================
-*.tmp
-*.bak
-*.swp
-
-# ====================
-# DVC (Data Version Control)
-# ====================
-# Cache lokal DVC (bisa besar)
-.dvc/cache/
-# File yang di-track oleh DVC tidak perlu di-git, hanya .dvc file
-*.dvc
-# Tapi kita commit .dvc file, jadi abaikan aturan di atas? 
-# Seharusnya file .dvc tetap di-commit, hanya cache yang diabaikan.
-# Maka:
-!*.dvc
-.dvc/cache/
-.dvc/tmp/
+logs/
+airflow/logs/
