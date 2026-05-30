@@ -1,113 +1,60 @@
 """
 airflow/dags/twitter_ingestion.py
 ==================================
-DAG Airflow untuk menjalankan scraping Twitter setiap jam
-dan menyimpan hasilnya sebagai Parquet di MinIO.
+DAG: Scrape tweet Bitcoin setiap 6 jam → simpan Parquet ke MinIO.
+Setelah sukses, trigger DAG sentiment_processing secara otomatis.
 
-Schedule: setiap jam (0 * * * *)
+Schedule: setiap 6 jam (0 */6 * * *)
 """
 
-from __future__ import annotations
-
-import logging
-import os
-import sys
 from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.operators.empty import EmptyOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
-# Tambahkan path ingestion agar bisa import twitter_batch
-sys.path.insert(0, "/opt/airflow/ingestion")
-
-logger = logging.getLogger(__name__)
-
-# ─── Default Args ─────────────────────────────────────────────
+# ─── Default args ────────────────────────────────────────────
 default_args = {
-    "owner":            "bigdata_team",
-    "depends_on_past":  False,
+    "owner": "bigdata-team",
+    "depends_on_past": False,
+    "retries": 2,
+    "retry_delay": timedelta(minutes=5),
     "email_on_failure": False,
-    "email_on_retry":   False,
-    "retries":          2,
-    "retry_delay":      timedelta(minutes=5),
 }
 
-# ─── Query untuk Scraping ─────────────────────────────────────
-TWITTER_QUERIES = [
-    "bitcoin OR BTC -is:retweet lang:en",
-    "#bitcoin OR #BTC -is:retweet lang:en",
-    "bitcoin price prediction -is:retweet lang:en",
-    "crypto BTC bullish OR bearish -is:retweet lang:en",
-]
-TWEET_LIMIT_PER_QUERY = int(os.getenv("TWITTER_SCRAPE_LIMIT", "100"))
 
+# ─── Task functions ──────────────────────────────────────────
+def run_twitter_ingestion(**context):
+    """
+    Jalankan ingestion/twitter_batch.py sebagai modul Python.
+    Dipanggil dari Airflow, bukan subprocess, agar environment sama.
+    """
+    import sys
+    import os
 
-# ─── Task Functions ───────────────────────────────────────────
-def check_dependencies(**context):
-    """Pastikan tweet-harvest dan MinIO dapat diakses sebelum scraping."""
-    import subprocess
-    import shutil
+    # Tambah path supaya bisa import modul ingestion
+    sys.path.insert(0, "/opt/airflow/ingestion")
+    from twitter_batch import run_ingestion  # noqa: E402
 
-    # Cek Node.js tersedia
-    if not shutil.which("node") and not shutil.which("npx"):
-        raise EnvironmentError(
-            "Node.js / npx tidak ditemukan. "
-            "Pastikan sudah install di container Airflow."
-        )
+    queries = [
+        "bitcoin OR BTC -is:retweet lang:en",
+        "#bitcoin OR #BTC -is:retweet lang:en",
+        "bitcoin price prediction -is:retweet lang:en",
+    ]
+    limit = int(os.getenv("TWITTER_SCRAPE_LIMIT", "200"))
 
-    # Cek tweet-harvest bisa dipanggil
-    result = subprocess.run(
-        ["npx", "tweet-harvest@latest", "--version"],
-        capture_output=True, text=True, timeout=30
-    )
-    logger.info("tweet-harvest version check: %s", result.stdout.strip())
-
-    # Cek MinIO koneksi
-    from minio import Minio
-    client = Minio(
-        os.getenv("MINIO_ENDPOINT", "minio:9000").replace("http://", ""),
-        access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-        secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin123"),
-        secure=False,
-    )
-    buckets = [b.name for b in client.list_buckets()]
-    logger.info("MinIO buckets tersedia: %s", buckets)
-
-    logger.info("Dependency check lulus.")
-
-
-def run_twitter_scraping(**context):
-    """Jalankan scraping Twitter untuk semua query dan upload ke MinIO."""
-    from twitter_batch import run_ingestion
-
-    total = run_ingestion(
-        queries=TWITTER_QUERIES,
-        limit=TWEET_LIMIT_PER_QUERY,
-    )
-
-    # Simpan jumlah tweet ke XCom untuk downstream task
-    context["ti"].xcom_push(key="total_tweets", value=total)
-    logger.info("Total tweet berhasil discrape dan diupload: %d", total)
-
-    if total == 0:
-        raise ValueError(
-            "Tidak ada tweet yang berhasil discrape. "
-            "Cek TWITTER_AUTH_TOKEN atau query yang digunakan."
-        )
-
+    total = run_ingestion(queries=queries, limit=limit)
+    context["ti"].xcom_push(key="tweet_count", value=total)
     return total
 
 
-def log_pipeline_audit(**context):
-    """Catat event pipeline ke audit_log di PostgreSQL."""
+def log_ingestion_result(**context):
+    """Catat hasil ingestion ke audit_log PostgreSQL."""
+    import os
     import psycopg2
 
-    total_tweets = context["ti"].xcom_pull(
-        task_ids="scrape_twitter", key="total_tweets"
-    ) or 0
-
-    execution_date = context["execution_date"].isoformat()
+    ti = context["ti"]
+    tweet_count = ti.xcom_pull(task_ids="scrape_tweets", key="tweet_count") or 0
 
     try:
         conn = psycopg2.connect(
@@ -126,49 +73,47 @@ def log_pipeline_audit(**context):
                 (
                     "airflow",
                     "PIPELINE_RUN",
-                    "twitter_posts (MinIO)",
-                    f"DAG twitter_ingestion selesai. execution_date={execution_date}, "
-                    f"total_tweets={total_tweets}",
+                    "twitter_raw (MinIO)",
+                    f"twitter_ingestion DAG selesai. Total tweet: {tweet_count}. "
+                    f"Run ID: {context['run_id']}",
                 ),
             )
             conn.commit()
         conn.close()
-        logger.info("Audit log dicatat.")
     except Exception as e:
-        logger.warning("Gagal catat audit log: %s", e)
-        # Tidak raise — audit logging tidak boleh gagalkan DAG
+        # Audit logging tidak boleh gagalkan DAG
+        print(f"Warning: gagal catat audit log: {e}")
 
 
 # ─── DAG Definition ──────────────────────────────────────────
 with DAG(
     dag_id="twitter_ingestion",
-    description="Scraping tweet Bitcoin setiap jam → Parquet → MinIO",
-    default_args=default_args,
-    schedule_interval="0 * * * *",          # setiap jam di menit ke-0
-    start_date=datetime(2025, 1, 1),
+    description="Scrape tweet Bitcoin → MinIO Parquet setiap 6 jam",
+    schedule_interval="0 */6 * * *",
+    start_date=datetime(2024, 1, 1),
     catchup=False,
-    max_active_runs=1,
+    default_args=default_args,
     tags=["ingestion", "twitter", "batch"],
+    max_active_runs=1,
 ) as dag:
 
-    start = EmptyOperator(task_id="start")
-
-    check_deps = PythonOperator(
-        task_id="check_dependencies",
-        python_callable=check_dependencies,
+    scrape_task = PythonOperator(
+        task_id="scrape_tweets",
+        python_callable=run_twitter_ingestion,
+        provide_context=True,
     )
 
-    scrape = PythonOperator(
-        task_id="scrape_twitter",
-        python_callable=run_twitter_scraping,
-    )
-
-    audit = PythonOperator(
+    audit_task = PythonOperator(
         task_id="log_audit",
-        python_callable=log_pipeline_audit,
+        python_callable=log_ingestion_result,
+        provide_context=True,
     )
 
-    end = EmptyOperator(task_id="end")
+    trigger_sentiment = TriggerDagRunOperator(
+        task_id="trigger_sentiment_processing",
+        trigger_dag_id="sentiment_processing",
+        wait_for_completion=False,
+        reset_dag_run=True,
+    )
 
-    # Alur: start → check_deps → scrape → audit → end
-    start >> check_deps >> scrape >> audit >> end
+    scrape_task >> audit_task >> trigger_sentiment

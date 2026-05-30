@@ -2,7 +2,7 @@ version: "3.8"
 
 # =============================================================
 # Bitcoin Volatility ML - Docker Compose
-# Fase 1: Infrastruktur inti (Kafka, PostgreSQL, MinIO, Airflow)
+# Fase 2: +Spark Master/Worker, MLflow, Hive Metastore, Trino, Grafana
 # =============================================================
 
 x-airflow-common: &airflow-common
@@ -14,7 +14,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
-    # MinIO / S3 untuk koneksi DAG
+    # MinIO / S3
     MINIO_ENDPOINT: http://minio:9000
     MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
     MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
@@ -24,15 +24,30 @@ x-airflow-common: &airflow-common
     APP_DB_NAME: ${POSTGRES_DB_APP}
     APP_DB_USER: ${POSTGRES_USER}
     APP_DB_PASSWORD: ${POSTGRES_PASSWORD}
+    # MLflow
+    MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+    # Spark
+    SPARK_MASTER_URL: ${SPARK_MASTER_URL}
   volumes:
     - ./airflow/dags:/opt/airflow/dags
     - ./airflow/plugins:/opt/airflow/plugins
     - ./ingestion:/opt/airflow/ingestion
     - ./processing:/opt/airflow/processing
+    - ./ml:/opt/airflow/ml
     - airflow_logs:/opt/airflow/logs
   depends_on:
     postgres:
       condition: service_healthy
+  networks:
+    - bigdata_net
+
+# ── Spark image reusable ──────────────────────────────────────
+x-spark-common: &spark-common
+  image: apache/spark:3.5.1
+  user: root
+  environment: &spark-common-env
+    AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
   networks:
     - bigdata_net
 
@@ -124,7 +139,9 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_MULTIPLE_DATABASES: ${POSTGRES_DB_APP},${POSTGRES_DB_AIRFLOW},${POSTGRES_DB_MLFLOW}
+      POSTGRES_MULTIPLE_DATABASES: ${POSTGRES_MULTIPLE_DATABASES}
+      POSTGRES_HOST_AUTH_METHOD: md5
+      POSTGRES_INITDB_ARGS: "--auth-host=md5"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./security/postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql
@@ -136,7 +153,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
-      timeout: 100s
+      timeout: 10s
       retries: 5
 
   # ─────────────────────────────────────────
@@ -179,10 +196,185 @@ services:
       mc mb --ignore-existing local/twitter-raw &&
       mc mb --ignore-existing local/mlflow-artifacts &&
       mc mb --ignore-existing local/spark-checkpoints &&
+      mc mb --ignore-existing local/hive-warehouse &&
       echo 'Buckets initialized.'
       "
     networks:
       - bigdata_net
+
+  # ─────────────────────────────────────────
+  # SPARK MASTER
+  # ─────────────────────────────────────────
+  spark-master:
+    <<: *spark-common
+    container_name: spark-master
+    environment:
+      <<: *spark-common-env
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
+    ports:
+      - "8081:8080"   # Spark Master Web UI
+      - "7077:7077"
+    volumes:
+      - ./processing:/opt/spark/jobs
+      - ./ml:/opt/spark/ml
+      - spark_logs:/opt/spark/logs
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  spark-worker:
+    <<: *spark-common
+    container_name: spark-worker
+    environment:
+      <<: *spark-common-env
+      SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-2g}
+      SPARK_WORKER_CORES: ${SPARK_WORKER_CORES:-2}
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    volumes:
+      - ./processing:/opt/spark/jobs
+      - ./ml:/opt/spark/ml
+      - spark_worker_logs:/opt/spark/logs
+
+  # ─────────────────────────────────────────
+  # HIVE METASTORE
+  # Menyimpan skema tabel Parquet di MinIO
+  # ─────────────────────────────────────────
+  hive-metastore:
+    build:
+      context: ./docker/hive
+      dockerfile: Dockerfile
+    container_name: hive-metastore
+    environment:
+      SERVICE_NAME: metastore
+      SKIP_SCHEMA_INIT: "true"
+      # Backend PostgreSQL
+      DB_DRIVER: postgres
+      SERVICE_OPTS: >-
+        -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
+        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres:5432/${HIVE_METASTORE_DB_NAME:-metastoredb}
+        -Djavax.jdo.option.ConnectionUserName=${POSTGRES_USER}
+        -Djavax.jdo.option.ConnectionPassword=${POSTGRES_PASSWORD}
+      # MinIO / S3A
+      AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
+    volumes:
+      - ./hive/hive-site.xml:/opt/hive/conf/hive-site.xml:ro
+    ports:
+      - "9083:9083"   # Thrift port untuk Trino
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - bigdata_net
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'cat /dev/null > /dev/tcp/localhost/9083' 2>/dev/null && echo OK || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 8
+      start_period: 90s
+
+  # ─────────────────────────────────────────
+  # MLFLOW
+  # Tracking server + Model Registry
+  # ─────────────────────────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.10.2
+    container_name: mlflow
+    command: >
+      mlflow server
+      --backend-store-uri postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB_MLFLOW}
+      --artifacts-destination s3://${MLFLOW_ARTIFACT_BUCKET:-mlflow-artifacts}
+      --serve-artifacts
+      --host 0.0.0.0
+      --port 5000
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
+      AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - bigdata_net
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:5000/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ─────────────────────────────────────────
+  # TRINO
+  # Query engine: PostgreSQL + MinIO (Hive)
+  # ─────────────────────────────────────────
+  trino:
+    image: trinodb/trino:438
+    container_name: trino
+    ports:
+      - "8082:8080"   # Trino Web UI + REST API
+    volumes:
+      - ./trino/config.properties:/etc/trino/config.properties:ro
+      - ./trino/catalog/postgresql.properties:/etc/trino/catalog/postgresql.properties:ro
+      - ./trino/catalog/hive.properties:/etc/trino/catalog/hive.properties:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      hive-metastore:
+        condition: service_healthy
+    networks:
+      - bigdata_net
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/v1/info"]
+      interval: 20s
+      timeout: 10s
+      retries: 8
+      start_period: 40s
+
+  # ─────────────────────────────────────────
+  # GRAFANA
+  # Dashboard monitoring + Telegram alerting
+  # ─────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.3.3
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-grafana123}
+      GF_SERVER_ROOT_URL: ${GF_SERVER_ROOT_URL:-http://localhost:3000}
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Provisioning otomatis datasource & dashboard
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      # Disable telemetry
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bigdata_net
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
 
   # ─────────────────────────────────────────
   # AIRFLOW WEBSERVER
@@ -222,7 +414,7 @@ services:
     command:
       - -c
       - |
-        pip install minio boto3 pandas pyarrow vaderSentiment great-expectations==0.18.15
+        pip install minio boto3 pandas pyarrow vaderSentiment great-expectations==0.18.15 trino
         airflow db migrate
         airflow users create \
           --username ${AIRFLOW_ADMIN_USER} \
@@ -266,3 +458,6 @@ volumes:
   zookeeper_data:
   zookeeper_logs:
   airflow_logs:
+  spark_logs:
+  spark_worker_logs:
+  grafana_data:
