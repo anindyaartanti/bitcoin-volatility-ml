@@ -2,11 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies
 COPY requirements.producer.txt .
 RUN pip install --no-cache-dir -r requirements.producer.txt
 
-# Copy source
-COPY binance_websocket.py .
+# Salin semua file Python dari folder ingestion
+COPY mock_producer.py binance_websocket.py ./
 
-CMD ["python", "binance_websocket.py"]
+# Atau jika ingin semua file: COPY . .
+
+CMD ["python", "mock_producer.py"]  # sesuaikan default command
