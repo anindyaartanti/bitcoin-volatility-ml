@@ -113,20 +113,11 @@ services:
       kafka:
         condition: service_healthy
     entrypoint: ["/bin/bash", "-c"]
-    command: >
-      "
-      kafka-topics --create --if-not-exists
-        --bootstrap-server kafka:29092
-        --topic btc_ticker_raw
-        --partitions 3
-        --replication-factor 1 &&
-      kafka-topics --create --if-not-exists
-        --bootstrap-server kafka:29092
-        --topic volatility_pred
-        --partitions 1
-        --replication-factor 1 &&
-      echo 'Topics created successfully.'
-      "
+    command:
+      - |
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic btc_ticker_raw --partitions 3 --replication-factor 1
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic volatility_pred --partitions 1 --replication-factor 1
+        echo 'Topics created successfully.'
     networks:
       - bigdata_net
 
@@ -437,10 +428,55 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_TOPIC: btc_ticker_raw
+      MOCK_INTERVAL: "60"        # kirim kline tiap 60 detik
+    command: ["python", "mock_producer.py"]    # ← ganti command ini
     depends_on:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - bigdata_net
+  
+  # ─────────────────────────────────────────
+  # SPARK STREAMING JOB
+  # ─────────────────────────────────────────
+  spark-streaming-job:
+    image: apache/spark:3.5.1
+    container_name: spark-streaming-job
+    user: root
+    environment:
+      # Koneksi
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TOPIC: btc_ticker_raw
+      SPARK_MASTER_URL: spark://spark-master:7077
+      # PostgreSQL
+      APP_DB_HOST: postgres
+      APP_DB_PORT: "5432"
+      APP_DB_NAME: ${POSTGRES_DB_APP}
+      APP_DB_USER: ${POSTGRES_USER}
+      APP_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      # MinIO
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      # Spark S3A
+      AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
+    volumes:
+      - ./processing:/opt/spark/jobs
+    entrypoint: ["/bin/bash", "/opt/spark/jobs/entrypoint.sh"]
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: on-failure
     networks:
       - bigdata_net
 
