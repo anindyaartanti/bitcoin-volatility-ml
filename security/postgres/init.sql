@@ -44,9 +44,10 @@ CREATE TABLE IF NOT EXISTS btc_ohlc_1m (
     high           NUMERIC(18, 8) NOT NULL,
     low            NUMERIC(18, 8) NOT NULL,
     close          NUMERIC(18, 8) NOT NULL,
-    volume         NUMERIC(24, 8) NOT NULL,
-    trade_count    INTEGER DEFAULT 0,
-    created_at     TIMESTAMPTZ DEFAULT NOW()
+    volume              NUMERIC(24, 8) NOT NULL,
+    trade_count         INTEGER DEFAULT 0,
+    rolling_volatility  NUMERIC(12, 8),
+    created_at          TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_ohlc_window_start ON btc_ohlc_1m (window_start DESC);

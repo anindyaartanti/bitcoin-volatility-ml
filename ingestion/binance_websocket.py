@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 import websocket
 from kafka import KafkaProducer
 from kafka.errors import KafkaError
+import ssl as ssl_lib
 
 # ─── Logging ────────────────────────────────────────────────
 logging.basicConfig(
@@ -34,7 +35,7 @@ logger = logging.getLogger("binance_producer")
 # ─── Konfigurasi ────────────────────────────────────────────
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_TOPIC             = os.getenv("KAFKA_TOPIC", "btc_ticker_raw")
-BINANCE_WS_URL          = "wss://stream.binance.com:9443/stream?streams=btcusdt@trade/btcusdt@kline_1m"
+BINANCE_WS_URL          = "wss://stream.binance.com:443/stream?streams=btcusdt@trade/btcusdt@kline_1m"
 
 # ─── Kafka Producer ─────────────────────────────────────────
 def create_producer(retries: int = 5, delay: int = 5) -> KafkaProducer:
@@ -154,7 +155,11 @@ def main():
             on_error=on_error,
             on_close=on_close,
         )
-        ws.run_forever(ping_interval=30, ping_timeout=10)
+        ws.run_forever(
+            ping_interval=30,
+            ping_timeout=10,
+            sslopt={"cert_reqs": ssl_lib.CERT_NONE}
+        )
         logger.warning("Koneksi terputus. Reconnect dalam %ds...", reconnect_delay)
         time.sleep(reconnect_delay)
 
