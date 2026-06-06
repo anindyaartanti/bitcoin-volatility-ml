@@ -236,8 +236,8 @@ def write_batch(batch_df, batch_id: int):
                     """
                     INSERT INTO btc_ohlc_1m
                         (window_start, window_end, open, high, low, close,
-                         volume, trade_count, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                         volume, trade_count, rolling_volatility, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     ON CONFLICT DO NOTHING
                     """,
                     (
@@ -249,8 +249,28 @@ def write_batch(batch_df, batch_id: int):
                         float(row["close"]),
                         float(row["volume"]),
                         int(row["trade_count"]) if row["trade_count"] else 0,
+                        float(row["rolling_volatility"]) if row["rolling_volatility"] is not None else None,
                     ),
                 )
+        conn.commit()
+
+        # Log ke metadata_table
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO metadata_table
+                    (dataset_name, source, location, record_count, pipeline_name, status)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    "btc_ohlc_1m",
+                    "binance_websocket",
+                    "postgresql.btcdb.btc_ohlc_1m",
+                    len(rows),
+                    "stream_processor",
+                    "success",
+                ),
+            )
         conn.commit()
         conn.close()
         logger.info(
