@@ -5,15 +5,12 @@ version: "3.8"
 # Fase 2: +Spark Master/Worker, MLflow, Hive Metastore, Trino, Grafana
 # =============================================================
 
-x-airflow-common: &airflow-common
-  image: apache/airflow:2.8.1-python3.11
-  environment: &airflow-common-env
-    AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB_AIRFLOW}
-    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
-    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
-    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+x-prefect-common: &prefect-common
+  build:
+    context: ./prefect
+    dockerfile: Dockerfile
+  environment: &prefect-common-env
+    PREFECT_API_URL: http://prefect-server:4200/api
     # MinIO / S3
     MINIO_ENDPOINT: http://minio:9000
     MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
@@ -26,18 +23,13 @@ x-airflow-common: &airflow-common
     APP_DB_PASSWORD: ${POSTGRES_PASSWORD}
     # MLflow
     MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
-    # Spark
-    SPARK_MASTER_URL: ${SPARK_MASTER_URL}
+    # Twitter
+    TWITTER_AUTH_TOKEN: ${TWITTER_AUTH_TOKEN}
+    TWITTER_SCRAPE_LIMIT: ${TWITTER_SCRAPE_LIMIT:-200}
   volumes:
-    - ./airflow/dags:/opt/airflow/dags
-    - ./airflow/plugins:/opt/airflow/plugins
-    - ./ingestion:/opt/airflow/ingestion
-    - ./processing:/opt/airflow/processing
-    - ./ml:/opt/airflow/ml
-    - airflow_logs:/opt/airflow/logs
-  depends_on:
-    postgres:
-      condition: service_healthy
+    - ./prefect/flows:/opt/prefect/flows
+    - ./processing:/opt/processing
+    - ./ingestion:/opt/ingestion
   networks:
     - bigdata_net
 
@@ -142,10 +134,10 @@ services:
     networks:
       - bigdata_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} && psql -U ${POSTGRES_USER} -d prefectdb -c 'SELECT 1' > /dev/null 2>&1"]
       interval: 10s
-      timeout: 10s
-      retries: 5
+      timeout: 15s
+      retries: 15
 
   # ─────────────────────────────────────────
   # MINIO (Data Lake)
@@ -243,7 +235,7 @@ services:
     container_name: hive-metastore
     environment:
       SERVICE_NAME: metastore
-      SKIP_SCHEMA_INIT: "true"
+      IS_RESUME: "true"
       # Backend PostgreSQL
       DB_DRIVER: postgres
       SERVICE_OPTS: >-
@@ -368,54 +360,67 @@ services:
       start_period: 20s
 
   # ─────────────────────────────────────────
-  # AIRFLOW WEBSERVER
+  # PREFECT SERVER (API + UI)
   # ─────────────────────────────────────────
-  airflow-webserver:
-    <<: *airflow-common
-    container_name: airflow-webserver
-    command: webserver
+  prefect-server:
+    build:
+      context: ./prefect
+      dockerfile: Dockerfile
+    container_name: prefect-server
+    command: >
+      prefect server start --host 0.0.0.0 --port 4200
+    environment:
+      PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/prefectdb
     ports:
-      - "8080:8080"
+      - "4200:4200"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bigdata_net
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-      interval: 30s
+      test: ["CMD", "curl", "--fail", "http://localhost:4200/api/health"]
+      interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 30s
 
   # ─────────────────────────────────────────
-  # AIRFLOW SCHEDULER
+  # PREFECT INIT (work-pool + deployments)
   # ─────────────────────────────────────────
-  airflow-scheduler:
-    <<: *airflow-common
-    container_name: airflow-scheduler
-    command: scheduler
-    healthcheck:
-      test: ["CMD", "airflow", "jobs", "check", "--job-type", "SchedulerJob", "--hostname", "$${HOSTNAME}"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-  # ─────────────────────────────────────────
-  # AIRFLOW INIT (migration + admin user)
-  # ─────────────────────────────────────────
-  airflow-init:
-    <<: *airflow-common
-    container_name: airflow-init
+  prefect-init:
+    <<: *prefect-common
+    container_name: prefect-init
     entrypoint: /bin/bash
     command:
       - -c
       - |
-        pip install minio boto3 pandas pyarrow vaderSentiment great-expectations==0.18.15 trino
-        airflow db migrate
-        airflow users create \
-          --username ${AIRFLOW_ADMIN_USER} \
-          --firstname Admin \
-          --lastname User \
-          --role Admin \
-          --email admin@example.com \
-          --password ${AIRFLOW_ADMIN_PASSWORD}
+        echo "=== Prefect Init ==="
+        while ! curl -sf http://prefect-server:4200/api/health; do
+          echo "Menunggu prefect-server..."
+          sleep 3
+        done
+        prefect work-pool create --type process default 2>/dev/null || true
+        echo "Work pool 'default' ready."
+        python /opt/prefect/flows/deploy_all.py
+        echo "Deployments registered."
+    depends_on:
+      prefect-server:
+        condition: service_healthy
     environment:
-      <<: *airflow-common-env
+      <<: *prefect-common-env
+
+  # ─────────────────────────────────────────
+  # PREFECT WORKER
+  # ─────────────────────────────────────────
+  prefect-worker:
+    <<: *prefect-common
+    container_name: prefect-worker
+    command: prefect worker start --pool default
+    depends_on:
+      prefect-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
   # ─────────────────────────────────────────
   # BINANCE PRODUCER (stream ke Kafka)
@@ -493,7 +498,6 @@ volumes:
   kafka_data:
   zookeeper_data:
   zookeeper_logs:
-  airflow_logs:
   spark_logs:
   spark_worker_logs:
   grafana_data:

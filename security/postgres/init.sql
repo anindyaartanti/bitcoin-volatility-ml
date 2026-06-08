@@ -53,6 +53,26 @@ CREATE TABLE IF NOT EXISTS btc_ohlc_1m (
 CREATE INDEX IF NOT EXISTS idx_ohlc_window_start ON btc_ohlc_1m (window_start DESC);
 
 -- ─────────────────────────────────────────────────────────────
+-- TABEL: sentiment_raw
+-- Diisi oleh batch_sentiment.py (FinVADER) per tweet
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS sentiment_raw (
+    id              BIGSERIAL PRIMARY KEY,
+    tweet_id        VARCHAR(64) NOT NULL UNIQUE,
+    tweet_text      TEXT,
+    tweet_created_at TIMESTAMPTZ,
+    scrape_time     TIMESTAMPTZ,
+    sentiment_score NUMERIC(6, 4),
+    positive        NUMERIC(6, 4),
+    negative        NUMERIC(6, 4),
+    neutral         NUMERIC(6, 4),
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sentiment_raw_scrape
+    ON sentiment_raw (scrape_time DESC);
+
+-- ─────────────────────────────────────────────────────────────
 -- TABEL: sentiment_hourly
 -- Diisi oleh Spark Batch dari data Twitter (Fase 3)
 -- ─────────────────────────────────────────────────────────────

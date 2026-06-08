@@ -19,7 +19,6 @@ Cara pakai manual (tes tanpa Airflow):
 """
 
 import argparse
-import json
 import logging
 import os
 import subprocess
@@ -28,8 +27,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+from dotenv import load_dotenv
 from minio import Minio
 from minio.error import S3Error
+
+load_dotenv()
 
 # ─── Logging ────────────────────────────────────────────────
 logging.basicConfig(
@@ -58,10 +60,12 @@ DEFAULT_LIMIT = int(os.getenv("TWITTER_SCRAPE_LIMIT", "100"))
 
 
 # ─── MinIO Client ────────────────────────────────────────────
-def get_minio_client() -> Minio:
-    secure = not MINIO_ENDPOINT.startswith("localhost")
+def get_minio_client(endpoint: str = None) -> Minio:
+    raw = endpoint or MINIO_ENDPOINT
+    ep = raw.replace("http://", "").replace("https://", "")
+    secure = raw.startswith("https://")
     return Minio(
-        MINIO_ENDPOINT,
+        ep,
         access_key=MINIO_ACCESS_KEY,
         secret_key=MINIO_SECRET_KEY,
         secure=secure,
@@ -75,10 +79,10 @@ def ensure_bucket(client: Minio, bucket: str):
 
 
 # ─── Scraping dengan tweet-harvest ───────────────────────────
-def scrape_tweets(query: str, limit: int, output_path: str) -> int:
+def scrape_tweets(query: str, limit: int, work_dir: str) -> int:
     """
-    Jalankan tweet-harvest via subprocess.
-    Menghasilkan file JSON di output_path.
+    Jalankan tweet-harvest via subprocess (v2.7+).
+    Menghasilkan file CSV di {work_dir}/tweets-data/.
     Mengembalikan jumlah tweet yang di-scrape.
     """
     if not TWITTER_AUTH_TOKEN:
@@ -88,12 +92,12 @@ def scrape_tweets(query: str, limit: int, output_path: str) -> int:
         )
 
     cmd = [
-        "npx", "--yes", "tweet-harvest@latest",
-        "--query",      query,
-        "--limit",      str(limit),
-        "--token",      TWITTER_AUTH_TOKEN,
-        "--output",     output_path,
-        "--type",       "json",
+        "npx", "--yes", "tweet-harvest",
+        "--token",           TWITTER_AUTH_TOKEN,
+        "--search-keyword",  query,
+        "--limit",           str(limit),
+        "--export-format",   "csv",
+        "--tab",             "LATEST",
     ]
 
     logger.info("Menjalankan tweet-harvest: query='%s', limit=%d", query, limit)
@@ -101,7 +105,8 @@ def scrape_tweets(query: str, limit: int, output_path: str) -> int:
         cmd,
         capture_output=True,
         text=True,
-        timeout=300,   # maks 5 menit per query
+        timeout=300,
+        cwd=work_dir,
     )
 
     if result.returncode != 0:
@@ -110,52 +115,56 @@ def scrape_tweets(query: str, limit: int, output_path: str) -> int:
 
     logger.info("tweet-harvest selesai:\n%s", result.stdout[:500])
 
-    # Hitung jumlah tweet yang berhasil diambil
-    if Path(output_path).exists():
-        with open(output_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        count = len(data) if isinstance(data, list) else 0
-        logger.info("Berhasil scrape %d tweet untuk query: '%s'", count, query)
-        return count
-    return 0
+    # Cari file CSV yang dihasilkan di {work_dir}/tweets-data/
+    tweets_dir = Path(work_dir) / "tweets-data"
+    if not tweets_dir.exists():
+        logger.warning("Direktori tweets-data tidak ditemukan.")
+        return 0
+
+    csv_files = sorted(tweets_dir.glob("*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not csv_files:
+        logger.warning("Tidak ada file CSV ditemukan di %s", tweets_dir)
+        return 0
+
+    df = pd.read_csv(csv_files[0])
+    count = len(df)
+    logger.info("Berhasil scrape %d tweet untuk query: '%s'", count, query)
+    return count
 
 
-# ─── Transformasi JSON → DataFrame ───────────────────────────
-def json_to_dataframe(json_path: str, query: str, scrape_time: datetime) -> pd.DataFrame:
+# ─── Transformasi CSV → DataFrame ────────────────────────────
+def csv_to_dataframe(csv_dir: str, query: str, scrape_time: datetime) -> pd.DataFrame:
     """
-    Baca JSON hasil tweet-harvest dan normalisasi ke DataFrame.
-    tweet-harvest menghasilkan array of tweet objects.
+    Baca CSV hasil tweet-harvest v2.7+ dan normalisasi ke DataFrame.
     """
-    with open(json_path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-
-    if not raw:
+    tweets_dir = Path(csv_dir) / "tweets-data"
+    if not tweets_dir.exists():
         return pd.DataFrame()
 
-    rows = []
-    for tweet in raw:
-        # tweet-harvest field names (dapat bervariasi per versi)
-        row = {
-            "tweet_id":        str(tweet.get("id_str") or tweet.get("id", "")),
-            "text":            tweet.get("full_text") or tweet.get("text", ""),
-            "username":        tweet.get("user", {}).get("screen_name", ""),
-            "user_followers":  tweet.get("user", {}).get("followers_count", 0),
-            "created_at":      tweet.get("created_at", ""),
-            "retweet_count":   tweet.get("retweet_count", 0),
-            "favorite_count":  tweet.get("favorite_count", 0),
-            "lang":            tweet.get("lang", ""),
-            "query":           query,
-            "scrape_time":     scrape_time.isoformat(),
-        }
-        rows.append(row)
+    csv_files = sorted(tweets_dir.glob("*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not csv_files:
+        return pd.DataFrame()
 
-    df = pd.DataFrame(rows)
+    raw = pd.read_csv(csv_files[0])
 
-    # Konversi tipe
-    df["created_at"]    = pd.to_datetime(df["created_at"], errors="coerce", utc=True)
+    if raw.empty:
+        return pd.DataFrame()
+
+    # Mapping kolom CSV tweet-harvest ke skema internal
+    df = pd.DataFrame({
+        "tweet_id":        raw["id_str"].astype(str),
+        "text":            raw["full_text"].fillna(""),
+        "username":        raw.get("username", "").astype(str),
+        "user_followers":  0,
+        "created_at":      pd.to_datetime(raw["created_at"], errors="coerce", utc=True),
+        "retweet_count":   pd.to_numeric(raw["retweet_count"], errors="coerce").fillna(0).astype(int),
+        "favorite_count":  pd.to_numeric(raw["favorite_count"], errors="coerce").fillna(0).astype(int),
+        "lang":            raw.get("lang", "").astype(str),
+        "query":           query,
+        "scrape_time":     scrape_time.isoformat(),
+    })
+
     df["scrape_time"]   = pd.to_datetime(df["scrape_time"], utc=True)
-    df["retweet_count"] = pd.to_numeric(df["retweet_count"], errors="coerce").fillna(0).astype(int)
-    df["favorite_count"]= pd.to_numeric(df["favorite_count"], errors="coerce").fillna(0).astype(int)
 
     # Hapus duplikat tweet_id
     df = df.drop_duplicates(subset=["tweet_id"])
@@ -238,7 +247,7 @@ def log_metadata(object_name: str, record_count: int, scrape_time: datetime):
 
 
 # ─── Main Function ────────────────────────────────────────────
-def run_ingestion(queries: list = None, limit: int = DEFAULT_LIMIT):
+def run_ingestion(queries: list = None, limit: int = DEFAULT_LIMIT, minio_endpoint: str = None):
     """
     Fungsi utama yang dipanggil oleh Airflow DAG atau langsung.
     """
@@ -248,37 +257,33 @@ def run_ingestion(queries: list = None, limit: int = DEFAULT_LIMIT):
     scrape_time = datetime.now(tz=timezone.utc)
     hour_str    = scrape_time.strftime("%Y%m%d_%H")
 
-    minio_client = get_minio_client()
+    minio_client = get_minio_client(endpoint=minio_endpoint)
     ensure_bucket(minio_client, MINIO_BUCKET)
 
     all_dfs    = []
     total_rows = 0
 
     for idx, query in enumerate(queries):
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp_json:
-            tmp_json_path = tmp_json.name
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            try:
+                count = scrape_tweets(query, limit, tmp_dir)
+                if count == 0:
+                    logger.warning("Tidak ada tweet untuk query: '%s'", query)
+                    continue
 
-        try:
-            count = scrape_tweets(query, limit, tmp_json_path)
-            if count == 0:
-                logger.warning("Tidak ada tweet untuk query: '%s'", query)
-                continue
+                df = csv_to_dataframe(tmp_dir, query, scrape_time)
+                if df.empty:
+                    continue
 
-            df = json_to_dataframe(tmp_json_path, query, scrape_time)
-            if df.empty:
-                continue
+                object_name = upload_parquet_to_minio(df, minio_client, hour_str, idx)
+                if object_name:
+                    log_metadata(object_name, len(df), scrape_time)
+                    total_rows += len(df)
+                    all_dfs.append(df)
 
-            object_name = upload_parquet_to_minio(df, minio_client, hour_str, idx)
-            if object_name:
-                log_metadata(object_name, len(df), scrape_time)
-                total_rows += len(df)
-                all_dfs.append(df)
-
-        except Exception as e:
-            logger.error("Error pada query '%s': %s", query, e)
-            # Lanjut ke query berikutnya
-        finally:
-            Path(tmp_json_path).unlink(missing_ok=True)
+            except Exception as e:
+                logger.error("Error pada query '%s': %s", query, e)
+                # Lanjut ke query berikutnya
 
     logger.info(
         "Ingestion selesai: %d query diproses, total %d tweet, jam=%s",
@@ -290,9 +295,10 @@ def run_ingestion(queries: list = None, limit: int = DEFAULT_LIMIT):
 # ─── CLI Entry Point ─────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Twitter batch scraper → MinIO")
-    parser.add_argument("--query",  type=str,  default=None,          help="Query tunggal (opsional, override default)")
-    parser.add_argument("--limit",  type=int,  default=DEFAULT_LIMIT, help="Jumlah tweet per query")
+    parser.add_argument("--query",          type=str,  default=None,                    help="Query tunggal (opsional, override default)")
+    parser.add_argument("--limit",          type=int,  default=DEFAULT_LIMIT,           help="Jumlah tweet per query")
+    parser.add_argument("--minio-endpoint", type=str,  default=None,                    help="MinIO endpoint, misal localhost:9000 (override .env)")
     args = parser.parse_args()
 
     queries = [args.query] if args.query else None
-    run_ingestion(queries=queries, limit=args.limit)
+    run_ingestion(queries=queries, limit=args.limit, minio_endpoint=args.minio_endpoint)
