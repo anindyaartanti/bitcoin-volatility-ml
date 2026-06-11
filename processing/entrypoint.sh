@@ -46,6 +46,8 @@ echo "MinIO siap."
 echo "Installing dependency..."
 pip install pandas
 pip install psycopg2-binary
+pip install pybreaker
+pip install requests
 
 echo "Semua dependency siap. Menjalankan spark-submit..."
 
