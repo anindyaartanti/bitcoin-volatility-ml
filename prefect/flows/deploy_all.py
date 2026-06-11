@@ -1,8 +1,9 @@
 from prefect.deployments import Deployment
-from prefect.client.schemas.schedules import CronSchedule
+from prefect.client.schemas.schedules import CronSchedule, IntervalSchedule
 from prefect.client.schemas.objects import MinimalDeploymentSchedule
 
 from model_training import model_training_flow
+from sentiment_flow import sentiment_pipeline
 from sentiment_processing import sentiment_processing_flow
 from twitter_ingestion import twitter_ingestion_flow
 
@@ -24,6 +25,17 @@ if __name__ == "__main__":
         apply=True,
     )
     print("Deployment 'sentiment-processing' created.")
+
+    Deployment.build_from_flow(
+        flow=sentiment_pipeline,
+        name="sentiment-pipeline",
+        work_pool_name="default",
+        schedules=[MinimalDeploymentSchedule(
+            schedule=IntervalSchedule(interval=1800)  # 30 menit
+        )],
+        apply=True,
+    )
+    print("Deployment 'sentiment-pipeline' created.")
 
     Deployment.build_from_flow(
         flow=model_training_flow,
