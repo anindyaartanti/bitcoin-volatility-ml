@@ -15,7 +15,9 @@ x-prefect-common: &prefect-common
     MINIO_ENDPOINT: http://minio:9000
     MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
     MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-    # PostgreSQL aplikasi
+    # PostgreSQL via PgBouncer (untuk flow writes)
+    PGBOUNCER_HOST: pgbouncer
+    PGBOUNCER_PORT: "6432"
     APP_DB_HOST: postgres
     APP_DB_PORT: 5432
     APP_DB_NAME: ${POSTGRES_DB_APP}
@@ -26,6 +28,9 @@ x-prefect-common: &prefect-common
     # Twitter
     TWITTER_AUTH_TOKEN: ${TWITTER_AUTH_TOKEN}
     TWITTER_SCRAPE_LIMIT: ${TWITTER_SCRAPE_LIMIT:-200}
+    # Telegram
+    TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+    TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
   volumes:
     - ./prefect/flows:/opt/prefect/flows
     - ./processing:/opt/processing
@@ -108,6 +113,7 @@ services:
     command:
       - |
         kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic btc_ticker_raw --partitions 3 --replication-factor 1
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic btc_ticker_dlq --partitions 1 --replication-factor 1
         kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic volatility_pred --partitions 1 --replication-factor 1
         echo 'Topics created successfully.'
     networks:
@@ -178,7 +184,7 @@ services:
       mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} &&
       mc mb --ignore-existing local/twitter-raw &&
       mc mb --ignore-existing local/mlflow-artifacts &&
-      mc mb --ignore-existing local/spark-checkpoints &&
+      mc mb --ignore-existing local/checkpoints &&
       mc mb --ignore-existing local/hive-warehouse &&
       echo 'Buckets initialized.'
       "
@@ -423,6 +429,37 @@ services:
     restart: unless-stopped
 
   # ─────────────────────────────────────────
+  # PGBOUNCER (connection pooler)
+  # ─────────────────────────────────────────
+  pgbouncer:
+    image: edoburu/pgbouncer:1.22.1
+    container_name: pgbouncer
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: btcdb
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 100
+      DEFAULT_POOL_SIZE: ${PGBOUNCER_POOL_SIZE:-20}
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    ports:
+      - "6432:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bigdata_net
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "6432", "-U", "${POSTGRES_USER}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─────────────────────────────────────────
   # BINANCE PRODUCER (stream ke Kafka)
   # ─────────────────────────────────────────
   binance-producer:
@@ -433,8 +470,10 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_TOPIC: btc_ticker_raw
-      MOCK_INTERVAL: "60"        # kirim kline tiap 60 detik
-    command: ["python", "mock_producer.py"]    # ← ganti command ini
+      KAFKA_DLQ_TOPIC: btc_ticker_dlq
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+    command: ["python", "binance_producer.py"]
     depends_on:
       kafka:
         condition: service_healthy
@@ -453,20 +492,28 @@ services:
       # Koneksi
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_TOPIC: btc_ticker_raw
+      KAFKA_DLQ_TOPIC: btc_ticker_dlq
       SPARK_MASTER_URL: spark://spark-master:7077
-      # PostgreSQL
-      APP_DB_HOST: postgres
-      APP_DB_PORT: "5432"
+      # PostgreSQL via PgBouncer
+      PGBOUNCER_HOST: pgbouncer
+      PGBOUNCER_PORT: "6432"
       APP_DB_NAME: ${POSTGRES_DB_APP}
       APP_DB_USER: ${POSTGRES_USER}
       APP_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      # PostgreSQL direct (circuit breaker fallback)
+      APP_DB_HOST: postgres
+      APP_DB_PORT: "5432"
       # MinIO
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-      # Spark S3A
       AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
+      # MLflow
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+      # Telegram
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
     volumes:
       - ./processing:/opt/spark/jobs
     entrypoint: ["/bin/bash", "/opt/spark/jobs/entrypoint.sh"]
@@ -480,6 +527,8 @@ services:
       postgres:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      pgbouncer:
         condition: service_healthy
     restart: on-failure
     networks:
