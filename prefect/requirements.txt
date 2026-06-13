@@ -14,3 +14,5 @@ s3fs==2024.6.1
 fsspec==2024.6.1
 aiobotocore==2.13.3
 pybreaker==1.0.1
+sqlalchemy==2.0.30
+joblib==1.4.2
