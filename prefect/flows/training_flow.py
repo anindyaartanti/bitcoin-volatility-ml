@@ -13,7 +13,6 @@ Prefect flow: model-training
 import json
 import logging
 import os
-import tempfile
 from datetime import datetime, timezone
 
 import joblib
@@ -86,15 +85,26 @@ bounds AS (
     SELECT MIN(window_start) AS t_min, MAX(window_start) AS t_max
     FROM btc_ohlc_1m
 ),
--- Fitur OHLC: rolling volatility, price range, volume ratio, target forward vol
+-- Hitung per-menit return dulu di CTE terpisah
+-- agar tidak ada nested window function (PostgreSQL tidak support)
+returns_calc AS (
+    SELECT
+        window_start,
+        high,
+        low,
+        close,
+        volume,
+        (close - LAG(close) OVER (ORDER BY window_start))
+            / NULLIF(LAG(close) OVER (ORDER BY window_start), 0) AS ret
+    FROM btc_ohlc_1m
+),
+-- Fitur OHLC: terapkan window function di atas kolom ret (bukan ekspresi window)
 ohlc_calc AS (
     SELECT
         window_start,
         close,
-        -- Std dev log-return 5 menit (rolling)
-        STDDEV(
-            (close - LAG(close) OVER w) / NULLIF(LAG(close) OVER w, 0)
-        ) OVER (
+        -- Std dev return 5 menit rolling
+        STDDEV(ret) OVER (
             ORDER BY window_start
             ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
         ) AS rolling_vol_5m,
@@ -104,15 +114,12 @@ ohlc_calc AS (
         volume / NULLIF(
             AVG(volume) OVER (ORDER BY window_start ROWS BETWEEN 9 PRECEDING AND CURRENT ROW),
         0) AS vol_ratio,
-        -- Target: std dev log-return 5 menit ke depan
-        STDDEV(
-            (close - LAG(close) OVER w) / NULLIF(LAG(close) OVER w, 0)
-        ) OVER (
+        -- Target: std dev return 5 menit ke depan (supervised learning target)
+        STDDEV(ret) OVER (
             ORDER BY window_start
             ROWS BETWEEN 1 FOLLOWING AND 5 FOLLOWING
         ) AS target_vol_5m
-    FROM btc_ohlc_1m
-    WINDOW w AS (ORDER BY window_start)
+    FROM returns_calc
 ),
 -- Expand sentimen 30 menit → per menit menggunakan generate_series
 sentiment_series AS (
@@ -276,9 +283,8 @@ def log_to_mlflow(model_tuple) -> dict:
               zip(FEATURE_COLS, final_model.feature_importances_)}
         mlflow.log_dict(fi, "feature_importance.json")
 
-        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
-            joblib.dump(final_scaler, f.name)
-            mlflow.log_artifact(f.name, artifact_path="scaler")
+        joblib.dump(final_scaler, "/tmp/scaler.pkl")
+        mlflow.log_artifact("/tmp/scaler.pkl", artifact_path="scaler")
 
         mlflow.xgboost.log_model(
             final_model,
@@ -317,7 +323,7 @@ def log_to_mlflow(model_tuple) -> dict:
 @task(retries=2, retry_delay_seconds=30)
 def record_lineage(metrics: dict, mlflow_result: dict, n_rows: int) -> None:
     log = get_run_logger()
-    quality_status = "promoted" if mlflow_result["promoted"] else "skipped"
+    quality_status = "promoted" if mlflow_result["promoted"] else "trained_not_promoted"
     params_json = json.dumps({
         "run_id":       mlflow_result["run_id"],
         "mae_cv_mean":  metrics["mae_cv_mean"],
