@@ -126,6 +126,13 @@
 - State window dijaga Spark Structured Streaming (watermark, offset tracking)
 - Tidak perlu simpan raw data — langsung agregasi dan discard
 
+**Real-time inference (volatility_pred):**
+- Setelah OHLC ditulis, `write_batch()` menghitung fitur tambahan di pandas: `rolling_vol_5m`, `price_range_ratio`, `vol_ratio`
+- Fitur sentimen (`compound_score`, `positive_ratio`, `tweet_count`, `minutes_since_sentiment`) diambil dari `_sentiment_cache`, di-refresh tiap 30 menit oleh thread daemon `start_sentiment_cache_thread()` (query langsung ke PostgreSQL, bukan PgBouncer — aman untuk thread terpisah)
+- Model + scaler (`btc_volatility_xgb` stage Production) di-load sekali saat startup via `load_xgb_model()`, dengan fallback ke cache lokal `/tmp/xgb_model_cache/{model,scaler}.pkl`
+- Prediksi (`predicted_vol_5m`) di-upsert ke tabel `volatility_pred` via PgBouncer (`ON CONFLICT (window_start) DO UPDATE`) dan diproduksi sebagai JSON ke Kafka topic `volatility_pred`
+- Latensi inferensi (`inference_latency_ms`) dan versi model dicatat per baris untuk audit performa model
+
 ---
 
 ## 4. Integrasi dengan Machine Learning (15)
@@ -163,9 +170,9 @@
    - params JSONB: `{rmse, mlflow_run_id}`
 
 **Integrasi ke stream processor:**
-- `stream_processor.py` load model Production dari MLflow saat startup
-- Fallback ke cache lokal `/tmp/xgb_model_cache/model.pkl` jika MLflow tidak tersedia
-- Model siap dipakai untuk inference volatility real-time
+- `stream_processor.py` load model + scaler Production dari MLflow saat startup (`load_xgb_model()` return `(model, scaler)`)
+- Fallback ke cache lokal `/tmp/xgb_model_cache/{model,scaler}.pkl` jika MLflow tidak tersedia
+- Model dipakai untuk inference volatility real-time tiap micro-batch (30 detik), hasil ditulis ke tabel `volatility_pred` dan topic Kafka `volatility_pred`
 
 **Jadwal retraining:** setiap Senin jam 02:00 UTC — `CronSchedule(cron="0 2 * * 1")`
 
