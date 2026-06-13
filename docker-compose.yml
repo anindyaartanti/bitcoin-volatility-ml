@@ -235,27 +235,19 @@ services:
   # Menyimpan skema tabel Parquet di MinIO
   # ─────────────────────────────────────────
   hive-metastore:
-    build:
-      context: ./docker/hive
-      dockerfile: Dockerfile
+    image: bitsondatadev/hive-metastore:latest
     container_name: hive-metastore
     environment:
-      SERVICE_NAME: metastore
-      IS_RESUME: "true"
-      # Backend PostgreSQL
-      DB_DRIVER: postgres
-      SERVICE_OPTS: >-
-        -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
-        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres:5432/${HIVE_METASTORE_DB_NAME:-metastoredb}
-        -Djavax.jdo.option.ConnectionUserName=${POSTGRES_USER}
-        -Djavax.jdo.option.ConnectionPassword=${POSTGRES_PASSWORD}
-      # MinIO / S3A
+      METASTORE_DB_HOSTNAME: postgres
+      METASTORE_DB_PORT: 5432
+      METASTORE_DB_NAME: ${HIVE_METASTORE_DB_NAME:-metastoredb}
+      METASTORE_DB_USER: ${POSTGRES_USER}
+      METASTORE_DB_PASS: ${POSTGRES_PASSWORD}
       AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
-    volumes:
-      - ./hive/hive-site.xml:/opt/hive/conf/hive-site.xml:ro
+      S3_ENDPOINT_URL: http://minio:9000
     ports:
-      - "9083:9083"   # Thrift port untuk Trino
+      - "9083:9083"
     depends_on:
       postgres:
         condition: service_healthy
@@ -321,7 +313,7 @@ services:
       postgres:
         condition: service_healthy
       hive-metastore:
-        condition: service_healthy
+        condition: service_started
     networks:
       - bigdata_net
     healthcheck:

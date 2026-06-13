@@ -23,6 +23,7 @@ from pyspark.sql.types import (
     StringType,
     StructField,
     StructType,
+    ArrayType,
 )
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -168,19 +169,20 @@ def create_spark_session() -> SparkSession:
 
 
 # ─── UDF: volatility = stddev of per-trade returns ───────────
-@F.pandas_udf(DoubleType())
-def calc_volatility(prices: "pd.Series") -> "pd.Series":
-    import numpy as np
-    import pandas as pd
-
-    def _vol(price_list):
-        if not price_list or len(price_list) < 2:
+@F.udf(DoubleType())
+def calc_volatility(prices):
+    if not prices or len(prices) < 2:
+        return None
+    try:
+        arr = [float(p) for p in prices]
+        returns = [(arr[i] - arr[i-1]) / arr[i-1] for i in range(1, len(arr)) if arr[i-1] != 0]
+        if not returns:
             return None
-        arr = np.array([float(p) for p in price_list], dtype=float)
-        returns = np.diff(arr) / arr[:-1]
-        return float(np.std(returns)) if len(returns) > 0 else None
-
-    return prices.apply(_vol)
+        mean = sum(returns) / len(returns)
+        variance = sum((r - mean) ** 2 for r in returns) / len(returns)
+        return float(variance ** 0.5)
+    except Exception:
+        return None
 
 
 # ─── Streaming pipeline ───────────────────────────────────────

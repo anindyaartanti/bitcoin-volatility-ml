@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import signal
-import ssl
 import sys
 import time
 
@@ -30,8 +29,29 @@ KAFKA_TOPIC             = os.getenv("KAFKA_TOPIC", "btc_ticker_raw")
 KAFKA_DLQ_TOPIC         = os.getenv("KAFKA_DLQ_TOPIC", "btc_ticker_dlq")
 TELEGRAM_BOT_TOKEN      = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID        = os.getenv("TELEGRAM_CHAT_ID", "")
-BINANCE_WS_URL          = "wss://stream.binance.com:9443/ws/btcusdt@trade"
+BINANCE_HOST            = "stream.binance.com"
+BINANCE_WS_PATH         = "/ws/btcusdt@trade"
 MAX_RETRIES             = 5
+
+# DNS-over-HTTPS resolver untuk bypass DNS hijacking (ISP Indonesia)
+DOH_URL = "https://dns.google/resolve"
+
+
+def resolve_via_doh(domain: str) -> str | None:
+    try:
+        resp = requests.get(
+            DOH_URL,
+            params={"name": domain, "type": "A"},
+            timeout=10,
+        )
+        data = resp.json()
+        for answer in data.get("Answer", []):
+            if answer.get("type") == 1:
+                return answer["data"]
+        logger.error("DoH: no A record for %s", domain)
+    except Exception as e:
+        logger.error("DoH resolution failed: %s", e)
+    return None
 
 REQUIRED_FIELDS = {"T", "p", "q", "s", "t"}
 
@@ -119,6 +139,17 @@ def main():
     global producer
     producer = create_producer()
 
+    # Resolve IP asli via DoH (bypass DNS hijacking)
+    resolved_ip = resolve_via_doh(BINANCE_HOST)
+    if not resolved_ip:
+        logger.error("Gagal resolve %s via DoH — fallback ke DNS sistem (rentan hijack)", BINANCE_HOST)
+        resolved_ip = BINANCE_HOST
+
+    if resolved_ip != BINANCE_HOST:
+        ws_url = f"wss://{resolved_ip}:9443{BINANCE_WS_PATH}"
+    else:
+        ws_url = f"wss://{BINANCE_HOST}:9443{BINANCE_WS_PATH}"
+
     attempt = 0
     while True:
         if attempt >= MAX_RETRIES:
@@ -135,9 +166,9 @@ def main():
         global _connected_successfully
         _connected_successfully = False
         attempt += 1
-        logger.info("Menghubungkan ke %s (percobaan %d)", BINANCE_WS_URL, attempt)
+        logger.info("Menghubungkan ke %s (percobaan %d)", ws_url, attempt)
         ws = websocket.WebSocketApp(
-            BINANCE_WS_URL,
+            ws_url,
             on_open=on_open,
             on_message=on_message,
             on_error=on_error,
@@ -146,7 +177,8 @@ def main():
         ws.run_forever(
             ping_interval=30,
             ping_timeout=10,
-            sslopt={"cert_reqs": ssl.CERT_NONE},
+            sslopt={"server_hostname": BINANCE_HOST},
+            host=BINANCE_HOST,
         )
         # Jika berhasil connect sebelumnya, reset counter
         if _connected_successfully:

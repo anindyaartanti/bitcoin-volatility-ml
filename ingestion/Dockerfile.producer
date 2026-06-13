@@ -5,9 +5,6 @@ WORKDIR /app
 COPY requirements.producer.txt .
 RUN pip install --no-cache-dir -r requirements.producer.txt
 
-# Salin semua file Python dari folder ingestion
-COPY mock_producer.py binance_websocket.py ./
+COPY binance_producer.py .
 
-# Atau jika ingin semua file: COPY . .
-
-CMD ["python", "mock_producer.py"]  # sesuaikan default command
+CMD ["python", "binance_producer.py"]
