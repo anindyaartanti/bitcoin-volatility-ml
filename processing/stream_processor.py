@@ -42,6 +42,7 @@ from config import (
     MINIO_ACCESS_KEY,
     MINIO_ENDPOINT,
     MINIO_SECRET_KEY,
+    CHECKPOINT_PATH,
 )
 
 logging.basicConfig(
@@ -60,7 +61,6 @@ PG_USER         = os.getenv("APP_DB_USER", "btcadmin")
 PG_PASSWORD     = os.getenv("APP_DB_PASSWORD", "")
 KAFKA_DLQ_TOPIC = os.getenv("KAFKA_DLQ_TOPIC", "btc_ticker_dlq")
 MLFLOW_URI      = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
-CHECKPOINT_PATH = "s3a://checkpoints/spark-streaming/"
 XGB_CACHE_PATH  = "/tmp/xgb_model_cache"
 TELEGRAM_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT   = os.getenv("TELEGRAM_CHAT_ID", "")
