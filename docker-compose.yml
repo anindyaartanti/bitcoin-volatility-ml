@@ -270,9 +270,7 @@ services:
   # Tracking server + Model Registry
   # ─────────────────────────────────────────
   mlflow:
-    build:
-      context: ./docker/mlflow
-      dockerfile: Dockerfile
+    image: ghcr.io/mlflow/mlflow:v2.10.2
     container_name: mlflow
     command: >
       mlflow server

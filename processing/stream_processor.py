@@ -39,7 +39,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 from config import (
     KAFKA_BOOTSTRAP_SERVERS,
     KAFKA_TOPIC_RAW,
-    KAFKA_TOPIC_PRED,
     MINIO_ACCESS_KEY,
     MINIO_ENDPOINT,
     MINIO_SECRET_KEY,
@@ -85,9 +84,9 @@ TRADE_SCHEMA = StructType([
     StructField("event_time", LongType(),   True),  # ms epoch
     StructField("symbol",     StringType(), True),
     StructField("trade_id",   LongType(),   True),
-    StructField("price",      StringType(), True),  # cast ke double
+    StructField("price",      StringType(), True),
     StructField("quantity",   StringType(), True),
-    StructField("is_buyer_mm", StringType(), True),
+    StructField("is_buyer_mm", BooleanType(), True),
 ])
 
 # ─── Circuit breaker ─────────────────────────────────────────

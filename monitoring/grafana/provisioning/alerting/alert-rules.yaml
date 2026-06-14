@@ -14,7 +14,7 @@ groups:
               format: table
               rawSql: |
                 SELECT COUNT(*) AS cnt
-                FROM btc_predictions
+                FROM volatility_pred
                 WHERE window_start > NOW() - INTERVAL '15 minutes'
               refId: A
             relativeTimeRange:
@@ -40,8 +40,8 @@ groups:
             model:
               format: table
               rawSql: |
-                SELECT AVG(predicted_vol) AS avg_vol
-                FROM btc_predictions
+                SELECT AVG(predicted_vol_5m) AS avg_vol
+                FROM volatility_pred
                 WHERE window_start > NOW() - INTERVAL '1 hour'
               refId: A
             relativeTimeRange:

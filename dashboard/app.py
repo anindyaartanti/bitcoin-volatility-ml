@@ -89,7 +89,7 @@ def page_overview():
 
     try:
         pred = query_pg(
-            "SELECT COUNT(*) AS cnt FROM btc_predictions "
+            "SELECT COUNT(*) AS cnt FROM volatility_pred "
             "WHERE window_start > NOW() - INTERVAL '1 hour'"
         )
         pred_cnt = int(pred["cnt"].iloc[0]) if not pred.empty else 0
@@ -161,8 +161,8 @@ def page_overview():
     with tab2:
         try:
             preds = query_pg(
-                "SELECT window_start, predicted_vol, actual_vol "
-                "FROM btc_predictions "
+                "SELECT window_start, predicted_vol_5m AS predicted_vol "
+                "FROM volatility_pred "
                 "WHERE window_start > NOW() - INTERVAL '24 hours' "
                 "ORDER BY window_start"
             )
@@ -173,8 +173,8 @@ def page_overview():
                     mode="lines", name="Predicted", line=dict(color="#f7931a", width=2),
                 ))
                 fig.add_trace(go.Scatter(
-                    x=preds["window_start"], y=preds["actual_vol"],
-                    mode="lines", name="Actual", line=dict(color="#00d4aa", width=2),
+                    x=preds["window_start"], y=preds["predicted_vol"],
+                    mode="lines", name="Predicted (copy)", line=dict(color="#00d4aa", width=2, dash="dot"),
                 ))
                 fig.update_layout(
                     title=None, yaxis_title="Volatility",
@@ -198,7 +198,7 @@ def page_overview():
                 "SELECT "
                 "(SELECT COUNT(*) FROM btc_ohlc_1m WHERE window_start > NOW() - INTERVAL '24 hours') AS ohlc_24h, "
                 "(SELECT COUNT(*) FROM sentiment_30m WHERE window_start > NOW() - INTERVAL '24 hours') AS sent_24h, "
-                "(SELECT COUNT(*) FROM btc_predictions WHERE window_start > NOW() - INTERVAL '24 hours') AS pred_24h, "
+                "(SELECT COUNT(*) FROM volatility_pred WHERE window_start > NOW() - INTERVAL '24 hours') AS pred_24h, "
                 "(SELECT MAX(window_start) FROM btc_ohlc_1m) AS last_ohlc"
             )
             if not r.empty:
@@ -223,18 +223,18 @@ def page_model():
     with col1:
         try:
             runs = query_pg(
-                "SELECT model_version, model_mae, "
+                "SELECT model_version, "
                 "MIN(window_start) AS first_run, MAX(window_start) AS last_run, COUNT(*) AS n_preds "
-                "FROM btc_predictions WHERE model_version IS NOT NULL "
-                "GROUP BY model_version, model_mae ORDER BY first_run"
+                "FROM volatility_pred WHERE model_version IS NOT NULL "
+                "GROUP BY model_version ORDER BY first_run"
             )
             if not runs.empty:
                 st.dataframe(runs, use_container_width=True, hide_index=True)
                 fig = px.bar(
-                    runs, x="model_version", y="model_mae",
+                    runs, x="model_version", y="n_preds",
                     title=None,
-                    labels={"model_version": "Model", "model_mae": "MAE"},
-                    color="model_mae", color_continuous_scale="RdYlGn_r",
+                    labels={"model_version": "Model", "n_preds": "Predictions"},
+                    color="n_preds", color_continuous_scale="Blues",
                 )
                 fig.update_layout(
                     margin=dict(l=10, r=10, t=10, b=10),
@@ -252,14 +252,14 @@ def page_model():
     with col2:
         try:
             preds = query_pg(
-                "SELECT predicted_vol, actual_vol "
-                "FROM btc_predictions "
-                "WHERE actual_vol IS NOT NULL "
-                "AND window_start > NOW() - INTERVAL '7 days'"
+                "SELECT predicted_vol_5m AS predicted_vol "
+                "FROM volatility_pred "
+                "WHERE window_start > NOW() - INTERVAL '7 days'"
             )
             if not preds.empty:
-                preds["error"] = preds["predicted_vol"] - preds["actual_vol"]
-                fig = px.histogram(preds, x="error", nbins=40, title=None)
+                preds["error"] = 0  # placeholder tanpa actual_vol
+                fig = px.histogram(preds, x="predicted_vol", nbins=40, title=None,
+                                   labels={"predicted_vol": "Predicted Volatility"})
                 fig.update_layout(
                     margin=dict(l=10, r=10, t=10, b=10),
                     paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
@@ -271,10 +271,8 @@ def page_model():
                 fig.update_traces(marker_color="#f7931a", marker_line_color="#f7931a")
                 st.plotly_chart(fig, use_container_width=True, key="residual_chart")
 
-                mae = preds["error"].abs().mean()
-                rmse = (preds["error"] ** 2).mean() ** 0.5
-                st.markdown(f"""<div class="card"><div class="label">MAE (7d)</div><div class="value">{mae:.6f}</div></div>""", unsafe_allow_html=True)
-                st.markdown(f"""<div class="card"><div class="label">RMSE (7d)</div><div class="value">{rmse:.6f}</div></div>""", unsafe_allow_html=True)
+                mean_pred = preds["predicted_vol"].mean()
+                st.markdown(f"""<div class="card"><div class="label">Mean Pred (7d)</div><div class="value">{mean_pred:.6f}</div></div>""", unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Residuals: {e}")
 
