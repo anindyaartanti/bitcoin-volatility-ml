@@ -337,7 +337,7 @@ services:
     container_name: grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-grafana123}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-k4ipbd_grafana_2026}
       GF_SERVER_SERVE_FROM_SUB_PATH: "false"
       # Provisioning otomatis datasource & dashboard
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
@@ -554,7 +554,7 @@ services:
       # Trino (federated query)
       TRINO_HOST: trino
       TRINO_PORT: "8080"
-      TRINO_USER: btcadmin
+      TRINO_USER: kelompok4_ipbd
     depends_on:
       postgres:
         condition: service_healthy
@@ -576,8 +576,8 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      NGINX_AUTH_USER: ${NGINX_AUTH_USER:-admin}
-      NGINX_AUTH_PASSWORD: ${NGINX_AUTH_PASSWORD:-admin123}
+      NGINX_AUTH_USER: ${NGINX_AUTH_USER:-kelompok4_ipbd}
+      NGINX_AUTH_PASSWORD: ${NGINX_AUTH_PASSWORD:-k4ipbd_nginx_2026}
     volumes:
       - ./security/nginx/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
       - ./security/nginx/nginx.key:/etc/nginx/ssl/nginx.key:ro

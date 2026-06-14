@@ -11,11 +11,11 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dashboard_reader') THEN
-    CREATE ROLE dashboard_reader WITH LOGIN PASSWORD 'reader_pass_ganti';
+    CREATE ROLE dashboard_reader WITH LOGIN PASSWORD 'k4ipbd_reader_2026';
   END IF;
 END$$;
 -- NOTE: Ganti password dashboard_reader via:
---   ALTER ROLE dashboard_reader PASSWORD '<isi DASHBOARD_READER_PASSWORD dari .env>'
+--   ALTER ROLE dashboard_reader PASSWORD '<isi k4ipbd_reader_2026 dari .env>'
 -- Password tidak bisa dibaca dari env saat init.sql dijalankan oleh postgres entrypoint.
 
 -- ─── btc_ohlc_1m ─────────────────────────────────────────────

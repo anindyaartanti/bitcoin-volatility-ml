@@ -10,9 +10,9 @@ datasources:
     type: postgres
     uid: btcdb-postgres
     url: postgres:5432
-    user: btcadmin
+    user: kelompok4_ipbd
     secureJsonData:
-      password: gantiPasswordAman123
+      password: k4ipbd_postgres_2026
     jsonData:
       database: btcdb
       sslmode: disable

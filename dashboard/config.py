@@ -4,15 +4,15 @@ import os
 PG_HOST = os.getenv("PG_HOST", "localhost")
 PG_PORT = int(os.getenv("PG_PORT", "5432"))
 PG_DB = os.getenv("PG_DB", "btcdb")
-PG_USER = os.getenv("PG_USER", "btcadmin")
-PG_PASSWORD = os.getenv("PG_PASSWORD", "gantiPasswordAman123")
+PG_USER = os.getenv("PG_USER", "kelompok4_ipbd")
+PG_PASSWORD = os.getenv("PG_PASSWORD", "k4ipbd_postgres_2026")
 
 # ─── Trino (analytics & federated query) ────────────────────
 # Dari host: localhost:8082
 # Dari container: trino:8080
 TRINO_HOST = os.getenv("TRINO_HOST", "localhost")
 TRINO_PORT = int(os.getenv("TRINO_PORT", "8082"))
-TRINO_USER = os.getenv("TRINO_USER", "btcadmin")
+TRINO_USER = os.getenv("TRINO_USER", "kelompok4_ipbd")
 
 # ─── Grafik & UI ────────────────────────────────────────────
 DASHBOARD_TITLE = "Bitcoin Volatility ML — Dashboard"

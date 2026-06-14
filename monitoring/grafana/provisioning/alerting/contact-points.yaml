@@ -6,6 +6,6 @@ contactPoints:
       - uid: telegram-alert
         type: telegram
         settings:
-          bottoken: "8724379302:AAHDBxMINjPhvJqBBDUEylqPPlQyKBbxyVw"
-          chatid: "5165803143"
+          bottoken: "${TELEGRAM_BOT_TOKEN}"
+          chatid: "${TELEGRAM_CHAT_ID}"
         disableResolveMessage: false

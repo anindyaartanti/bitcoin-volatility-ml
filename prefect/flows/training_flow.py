@@ -40,7 +40,7 @@ logger = logging.getLogger("training_flow")
 _PG_HOST = os.getenv("APP_DB_HOST", "postgres")
 _PG_PORT = os.getenv("APP_DB_PORT", "5432")
 _PG_DB   = os.getenv("APP_DB_NAME", "btcdb")
-_PG_USER = os.getenv("APP_DB_USER", "btcadmin")
+_PG_USER = os.getenv("APP_DB_USER", "kelompok4_ipbd")
 _PG_PASS = os.getenv("APP_DB_PASSWORD", "")
 
 _PGB_HOST = os.getenv("PGBOUNCER_HOST", "pgbouncer")

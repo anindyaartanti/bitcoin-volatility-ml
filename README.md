@@ -56,10 +56,10 @@ docker compose up -d --build
 
 | Service     | URL                                   | Auth                  |
 |-------------|---------------------------------------|-----------------------|
-| Dashboard   | `https://localhost`                   | admin / admin123      |
-| Grafana     | `http://localhost:3001`               | admin / grafana123    |
-| Trino       | `http://localhost:8082`               | trino user: btcadmin  |
-| MinIO       | `http://localhost:9001`               | minioadmin / minioadmin123 |
+| Dashboard   | `https://localhost`                   | kelompok4_ipbd / k4ipbd_nginx_2026 |
+| Grafana     | `http://localhost:3001`               | kelompok4_ipbd / k4ipbd_grafana_2026 |
+| Trino       | `http://localhost:8082`               | user: kelompok4_ipbd |
+| MinIO       | `http://localhost:9001`               | minioadmin / k4ipbd_minio_2026 |
 | MLflow      | `http://localhost:5000`               | -                     |
 | Prefect     | `http://localhost:4200`               | -                     |
 
@@ -120,8 +120,8 @@ cd bitcoin-volatility-ml
 cp .env.laptop2.example .env
 # File .env sudah default ke fatih-omen, gak perlu diubah:
 #   LAPTOP1_TAILSCALE_IP=fatih-omen
-#   NGINX_AUTH_USER=admin
-#   NGINX_AUTH_PASSWORD=admin123
+#   NGINX_AUTH_USER=kelompok4_ipbd
+#   NGINX_AUTH_PASSWORD=k4ipbd_nginx_2026
 
 # generate SSL cert
 docker run --rm -v "${PWD}/security/nginx:/certs" nginx:alpine \
@@ -141,9 +141,9 @@ docker ps
 
 | Service     | URL                                        | Auth                  |
 |-------------|--------------------------------------------|-----------------------|
-| Dashboard   | `https://localhost`                        | admin / admin123      |
-| Grafana     | `http://fatih-omen:3001`                   | admin / grafana123    |
-| MinIO UI    | `http://fatih-omen:9001`                   | minioadmin / minioadmin123 |
+| Dashboard   | `https://localhost`                        | kelompok4_ipbd / k4ipbd_nginx_2026 |
+| Grafana     | `http://fatih-omen:3001`                   | kelompok4_ipbd / k4ipbd_grafana_2026 |
+| MinIO UI    | `http://fatih-omen:9001`                   | minioadmin / k4ipbd_minio_2026 |
 | MLflow      | `http://fatih-omen:5000`                   | -                     |
 | Prefect UI  | `http://fatih-omen:4200`                   | -                     |
 
@@ -193,10 +193,10 @@ Buka `http://fatih-omen:3001` → Alerting → lihat status 4 alert rules.
 | Variable                | Default            | Deskripsi                     |
 |-------------------------|--------------------|-------------------------------|
 | `LAPTOP1_TAILSCALE_IP`  | `fatih-omen`       | Tailscale hostname Laptop 1   |
-| `POSTGRES_USER`         | `btcadmin`         | PostgreSQL user               |
-| `POSTGRES_PASSWORD`     | `gantiPasswordAman123` | PostgreSQL password       |
-| `NGINX_AUTH_USER`       | `admin`            | Basic Auth username           |
-| `NGINX_AUTH_PASSWORD`   | `admin123`         | Basic Auth password           |
+| `POSTGRES_USER`         | `kelompok4_ipbd`   | PostgreSQL user               |
+| `POSTGRES_PASSWORD`     | `k4ipbd_postgres_2026` | PostgreSQL password       |
+| `NGINX_AUTH_USER`       | `kelompok4_ipbd`   | Basic Auth username           |
+| `NGINX_AUTH_PASSWORD`   | `k4ipbd_nginx_2026` | Basic Auth password           |
 | `TELEGRAM_BOT_TOKEN`    | `your_token`       | Token bot Telegram alerting   |
 | `TELEGRAM_CHAT_ID`      | `your_chat_id`     | Chat ID Telegram              |
 

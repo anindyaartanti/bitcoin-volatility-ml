@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 export MINIO_ENDPOINT=http://localhost:9000
 export MINIO_ACCESS_KEY=minioadmin
-export MINIO_SECRET_KEY=minioadmin123
+export MINIO_SECRET_KEY=k4ipbd_minio_2026
 
 case "${1:-help}" in
   twitter)
