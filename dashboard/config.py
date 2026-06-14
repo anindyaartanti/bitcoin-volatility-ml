@@ -1,0 +1,19 @@
+import os
+
+# ─── PostgreSQL (data operasional real-time) ────────────────
+PG_HOST = os.getenv("PG_HOST", "localhost")
+PG_PORT = int(os.getenv("PG_PORT", "5432"))
+PG_DB = os.getenv("PG_DB", "btcdb")
+PG_USER = os.getenv("PG_USER", "btcadmin")
+PG_PASSWORD = os.getenv("PG_PASSWORD", "gantiPasswordAman123")
+
+# ─── Trino (analytics & federated query) ────────────────────
+# Dari host: localhost:8082
+# Dari container: trino:8080
+TRINO_HOST = os.getenv("TRINO_HOST", "localhost")
+TRINO_PORT = int(os.getenv("TRINO_PORT", "8082"))
+TRINO_USER = os.getenv("TRINO_USER", "btcadmin")
+
+# ─── Grafik & UI ────────────────────────────────────────────
+DASHBOARD_TITLE = "Bitcoin Volatility ML — Dashboard"
+DASHBOARD_REFRESH_SECONDS = 30
