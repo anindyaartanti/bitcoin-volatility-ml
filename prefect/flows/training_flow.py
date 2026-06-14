@@ -204,10 +204,10 @@ def extract_features() -> pd.DataFrame:
     df = pd.read_sql("SELECT * FROM v_ml_features ORDER BY window_start", engine)
     engine.dispose()
     log.info("v_ml_features: %d baris, %d kolom", len(df), df.shape[1])
-    if len(df) < 500:
+    if len(df) < 10:
         raise ValueError(
             f"Data tidak cukup: hanya {len(df)} baris di v_ml_features "
-            f"(minimum 500). Tunggu lebih banyak data OHLC dan sentimen."
+            f"(minimum 10). Tunggu lebih banyak data OHLC dan sentimen."
         )
     return df
 
