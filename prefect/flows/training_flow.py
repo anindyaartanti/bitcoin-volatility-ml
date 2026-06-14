@@ -40,7 +40,7 @@ logger = logging.getLogger("training_flow")
 _PG_HOST = os.getenv("APP_DB_HOST", "postgres")
 _PG_PORT = os.getenv("APP_DB_PORT", "5432")
 _PG_DB   = os.getenv("APP_DB_NAME", "btcdb")
-_PG_USER = os.getenv("APP_DB_USER", "btcadmin")
+_PG_USER = os.getenv("APP_DB_USER", "kelompok4_ipbd")
 _PG_PASS = os.getenv("APP_DB_PASSWORD", "")
 
 _PGB_HOST = os.getenv("PGBOUNCER_HOST", "pgbouncer")
@@ -204,10 +204,10 @@ def extract_features() -> pd.DataFrame:
     df = pd.read_sql("SELECT * FROM v_ml_features ORDER BY window_start", engine)
     engine.dispose()
     log.info("v_ml_features: %d baris, %d kolom", len(df), df.shape[1])
-    if len(df) < 500:
+    if len(df) < 10:
         raise ValueError(
             f"Data tidak cukup: hanya {len(df)} baris di v_ml_features "
-            f"(minimum 500). Tunggu lebih banyak data OHLC dan sentimen."
+            f"(minimum 10). Tunggu lebih banyak data OHLC dan sentimen."
         )
     return df
 

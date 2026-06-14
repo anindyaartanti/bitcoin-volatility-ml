@@ -15,8 +15,8 @@ KAFKA_TOPIC_RAW         = os.getenv("KAFKA_TOPIC", "btc_ticker_raw")
 PG_HOST     = os.getenv("APP_DB_HOST", "postgres")
 PG_PORT     = os.getenv("APP_DB_PORT", "5432")
 PG_DB       = os.getenv("APP_DB_NAME", "btcdb")
-PG_USER     = os.getenv("APP_DB_USER", "btcadmin")
-PG_PASSWORD = os.getenv("APP_DB_PASSWORD", "gantiPasswordAman123")
+PG_USER     = os.getenv("APP_DB_USER", "kelompok4_ipbd")
+PG_PASSWORD = os.getenv("APP_DB_PASSWORD", "k4ipbd_postgres_2026")
 PG_JDBC_URL = f"jdbc:postgresql://{PG_HOST}:{PG_PORT}/{PG_DB}"
 
 PG_JDBC_PROPERTIES = {
@@ -28,7 +28,7 @@ PG_JDBC_PROPERTIES = {
 # ─── MinIO / S3A ─────────────────────────────────────────────
 MINIO_ENDPOINT   = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
-MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "k4ipbd_minio_2026")
 
 CHECKPOINT_BUCKET = "checkpoints"
 CHECKPOINT_PATH   = f"s3a://{CHECKPOINT_BUCKET}/spark-streaming"
