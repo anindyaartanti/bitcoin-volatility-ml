@@ -246,7 +246,7 @@ Diisi oleh: `sentiment_flow.py` (task `harvest_tweets`), `stream_processor.py` (
 
 **Authentication & Authorization:**
 - PostgreSQL: dua role terpisah
-  - `btcadmin` — full write access (dipakai pipeline)
+  - `kelompok4_ipbd` — full write access (dipakai pipeline)
   - `dashboard_reader` — SELECT only pada `btc_ohlc_1m`, `sentiment_30m`, `pipeline_lineage`, `audit_log` (dipakai Grafana/Streamlit)
 - PgBouncer: autentikasi via `pgbouncer/userlist.txt` (password md5), `POOL_MODE=transaction` — aplikasi tidak pegang koneksi PostgreSQL langsung
 - MinIO: akses hanya dengan access key + secret key (tidak ada anonymous access)
@@ -320,7 +320,7 @@ docker compose ps
 # kafka-init, minio-init, prefect-init boleh: exited (0)
 
 # 4. Verifikasi Binance → PostgreSQL (stream berjalan otomatis)
-docker exec -it postgres psql -U btcadmin -d btcdb \
+docker exec -it postgres psql -U kelompok4_ipbd -d btcdb \
   -c "SELECT COUNT(*), MAX(window_start) FROM btc_ohlc_1m;"
 # Tunggu 1-2 menit, harus ada rows
 
@@ -328,14 +328,14 @@ docker exec -it postgres psql -U btcadmin -d btcdb \
 # Buka http://localhost:4200 → Deployments → sentiment-pipeline → Quick Run
 
 # 6. Verifikasi sentimen → PostgreSQL
-docker exec -it postgres psql -U btcadmin -d btcdb \
+docker exec -it postgres psql -U kelompok4_ipbd -d btcdb \
   -c "SELECT window_start, compound_score, tweet_count, data_quality FROM sentiment_30m ORDER BY window_start DESC LIMIT 5;"
 
 # 7. Akses semua dashboard
 # Prefect UI   : http://localhost:4200
-# Grafana      : http://localhost:3000   (admin / grafana123)
+# Grafana      : http://localhost:3000   (kelompok4_ipbd / k4ipbd_grafana_2026)
 # MLflow       : http://localhost:5000
-# MinIO Console: http://localhost:9001   (minioadmin / minioadmin123)
+# MinIO Console: http://localhost:9001   (minioadmin / k4ipbd_minio_2026)
 # Trino UI     : http://localhost:8082
 # Spark UI     : http://localhost:8081
 ```

@@ -11,11 +11,11 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dashboard_reader') THEN
-    CREATE ROLE dashboard_reader WITH LOGIN PASSWORD 'reader_pass_ganti';
+    CREATE ROLE dashboard_reader WITH LOGIN PASSWORD 'k4ipbd_reader_2026';
   END IF;
 END$$;
 -- NOTE: Ganti password dashboard_reader via:
---   ALTER ROLE dashboard_reader PASSWORD '<isi DASHBOARD_READER_PASSWORD dari .env>'
+--   ALTER ROLE dashboard_reader PASSWORD '<isi k4ipbd_reader_2026 dari .env>'
 -- Password tidak bisa dibaca dari env saat init.sql dijalankan oleh postgres entrypoint.
 
 -- ─── btc_ohlc_1m ─────────────────────────────────────────────
@@ -69,6 +69,91 @@ CREATE TABLE IF NOT EXISTS pipeline_lineage (
     params          JSONB
 );
 
+-- ─── btc_predictions ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS btc_predictions (
+    id              BIGSERIAL PRIMARY KEY,
+    window_start    TIMESTAMPTZ NOT NULL UNIQUE,
+    predicted_vol   NUMERIC(10,8) NOT NULL CHECK (predicted_vol >= 0),
+    actual_vol      NUMERIC(10,8) CHECK (actual_vol >= 0),
+    model_version   VARCHAR(20),
+    model_mae       NUMERIC(10,8),
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_predictions_window_start ON btc_predictions (window_start DESC);
+
+-- ─── v_ml_features view ─────────────────────────────────────
+CREATE OR REPLACE VIEW v_ml_features AS
+WITH
+bounds AS (
+    SELECT MIN(window_start) AS t_min, MAX(window_start) AS t_max
+    FROM btc_ohlc_1m
+),
+returns_calc AS (
+    SELECT
+        window_start,
+        high, low, close, volume,
+        (close - LAG(close) OVER (ORDER BY window_start))
+            / NULLIF(LAG(close) OVER (ORDER BY window_start), 0) AS ret
+    FROM btc_ohlc_1m
+),
+ohlc_calc AS (
+    SELECT
+        window_start, close,
+        STDDEV(ret) OVER (
+            ORDER BY window_start ROWS BETWEEN 4 PRECEDING AND CURRENT ROW
+        ) AS rolling_vol_5m,
+        (high - low) / NULLIF(close, 0) AS price_range_ratio,
+        volume / NULLIF(
+            AVG(volume) OVER (ORDER BY window_start ROWS BETWEEN 9 PRECEDING AND CURRENT ROW), 0
+        ) AS vol_ratio,
+        STDDEV(ret) OVER (
+            ORDER BY window_start ROWS BETWEEN 1 FOLLOWING AND 5 FOLLOWING
+        ) AS target_vol_5m
+    FROM returns_calc
+),
+sentiment_series AS (
+    SELECT
+        gs.t AS window_start,
+        s.compound_score, s.positive_ratio, s.tweet_count,
+        s.window_start AS sentiment_window_start
+    FROM bounds,
+         generate_series(bounds.t_min, bounds.t_max, INTERVAL '1 minute') AS gs(t)
+    LEFT JOIN sentiment_30m s
+           ON s.window_start <= gs.t AND s.window_end > gs.t
+),
+sentiment_ffill AS (
+    SELECT
+        window_start,
+        MAX(CASE WHEN compound_score IS NOT NULL THEN compound_score END)
+            OVER (ORDER BY window_start ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+            AS compound_score,
+        MAX(CASE WHEN positive_ratio IS NOT NULL THEN positive_ratio END)
+            OVER (ORDER BY window_start ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+            AS positive_ratio,
+        MAX(CASE WHEN tweet_count IS NOT NULL THEN tweet_count END)
+            OVER (ORDER BY window_start ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+            AS tweet_count,
+        MAX(CASE WHEN sentiment_window_start IS NOT NULL THEN sentiment_window_start END)
+            OVER (ORDER BY window_start ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+            AS last_sentiment_ts
+    FROM sentiment_series
+)
+SELECT
+    o.window_start,
+    o.rolling_vol_5m, o.price_range_ratio, o.vol_ratio,
+    sf.compound_score, sf.positive_ratio,
+    sf.tweet_count::FLOAT AS tweet_count,
+    EXTRACT(EPOCH FROM (o.window_start - sf.last_sentiment_ts)) / 60.0
+        AS minutes_since_sentiment,
+    o.target_vol_5m
+FROM ohlc_calc o
+JOIN sentiment_ffill sf ON sf.window_start = o.window_start
+WHERE o.target_vol_5m IS NOT NULL
+  AND o.rolling_vol_5m IS NOT NULL
+  AND sf.compound_score IS NOT NULL
+ORDER BY o.window_start;
+
 -- ─── audit_log ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS audit_log (
     id         BIGSERIAL PRIMARY KEY,
@@ -103,7 +188,7 @@ DO $$
 DECLARE
     tbl TEXT;
 BEGIN
-    FOREACH tbl IN ARRAY ARRAY['btc_ohlc_1m','sentiment_30m','pipeline_lineage'] LOOP
+    FOREACH tbl IN ARRAY ARRAY['btc_ohlc_1m','sentiment_30m','pipeline_lineage','btc_predictions'] LOOP
         IF NOT EXISTS (
             SELECT 1 FROM pg_trigger
             WHERE tgname = 'trg_audit_' || tbl
@@ -120,4 +205,4 @@ BEGIN
 END$$;
 
 -- ─── GRANTS ──────────────────────────────────────────────────
-GRANT SELECT ON btc_ohlc_1m, sentiment_30m, pipeline_lineage, audit_log TO dashboard_reader;
+GRANT SELECT ON btc_ohlc_1m, sentiment_30m, pipeline_lineage, audit_log, btc_predictions TO dashboard_reader;

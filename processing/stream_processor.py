@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from config import (
     KAFKA_BOOTSTRAP_SERVERS,
     KAFKA_TOPIC_RAW,
+    KAFKA_TOPIC_PRED,
     MINIO_ACCESS_KEY,
     MINIO_ENDPOINT,
     MINIO_SECRET_KEY,
@@ -47,7 +48,7 @@ PGBOUNCER_PORT  = int(os.getenv("PGBOUNCER_PORT", "6432"))
 PG_DIRECT_HOST  = os.getenv("APP_DB_HOST", "postgres")
 PG_DIRECT_PORT  = int(os.getenv("APP_DB_PORT", "5432"))
 PG_DB           = os.getenv("APP_DB_NAME", "btcdb")
-PG_USER         = os.getenv("APP_DB_USER", "btcadmin")
+PG_USER         = os.getenv("APP_DB_USER", "kelompok4_ipbd")
 PG_PASSWORD     = os.getenv("APP_DB_PASSWORD", "")
 KAFKA_DLQ_TOPIC = os.getenv("KAFKA_DLQ_TOPIC", "btc_ticker_dlq")
 MLFLOW_URI      = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
@@ -122,31 +123,72 @@ def _log_audit_direct(detail: str):
         logger.error("Fallback audit log gagal: %s", e)
 
 
-# ─── XGBoost model cache ─────────────────────────────────────
-def load_xgb_model():
-    """Load dari MLflow, cache ke /tmp. Fallback ke cache jika MLflow down."""
-    import pickle
-    cache = XGB_CACHE_PATH + "/model.pkl"
+# ─── Inference artifacts ─────────────────────────────────────
+_INFERENCE_ARTIFACTS = None  # (model, scaler, model_version)
+
+FEATURE_COLS = [
+    "rolling_vol_5m", "price_range_ratio", "vol_ratio",
+    "compound_score", "positive_ratio", "tweet_count", "minutes_since_sentiment",
+]
+
+def load_model_and_scaler():
+    """Load XGBoost model + scaler dari MLflow, cache ke /tmp."""
+    global _INFERENCE_ARTIFACTS
+    import pickle, json, joblib
+    from mlflow.tracking import MlflowClient
+    import mlflow.xgboost
+
+    cache_dir = XGB_CACHE_PATH
+    model_cache = f"{cache_dir}/model.pkl"
+    scaler_cache = f"{cache_dir}/scaler.pkl"
+    meta_cache = f"{cache_dir}/meta.json"
+
     try:
-        import mlflow.xgboost
         mlflow.set_tracking_uri(MLFLOW_URI)
-        client = mlflow.tracking.MlflowClient()
+        client = MlflowClient()
         mv = client.get_latest_versions("btc_volatility_xgb", stages=["Production"])
+        if not mv:
+            mv = client.get_latest_versions("btc_volatility_xgb", stages=["None"])
+        if not mv:
+            try:
+                reg_model = client.get_registered_model("btc_volatility_xgb")
+                mv = client.get_latest_versions("btc_volatility_xgb")
+            except Exception:
+                mv = None
         if mv:
-            model = mlflow.xgboost.load_model(f"runs:/{mv[0].run_id}/model")
-            os.makedirs(XGB_CACHE_PATH, exist_ok=True)
-            with open(cache, "wb") as f:
+            run_id = mv[0].run_id
+            model = mlflow.xgboost.load_model(f"runs:/{run_id}/model")
+            os.makedirs(cache_dir, exist_ok=True)
+            local_dir = client.download_artifacts(run_id, "scaler", dst_path=cache_dir)
+            scaler = joblib.load(f"{local_dir}/scaler.pkl")
+            with open(model_cache, "wb") as f:
                 pickle.dump(model, f)
-            logger.info("XGBoost model loaded from MLflow dan dicache.")
-            return model
+            with open(scaler_cache, "wb") as f:
+                pickle.dump(scaler, f)
+            with open(meta_cache, "w") as f:
+                json.dump({"model_version": mv[0].version, "run_id": run_id}, f)
+
+            logger.info("Model+scaler loaded from MLflow (v%s)", mv[0].version)
+            _INFERENCE_ARTIFACTS = (model, scaler, mv[0].version)
+            return
     except Exception as e:
-        logger.warning("MLflow tidak tersedia (%s), mencoba cache...", e)
-    if os.path.exists(cache):
-        with open(cache, "rb") as f:
-            logger.info("XGBoost model loaded dari cache.")
-            return pickle.load(f)
-    logger.warning("XGBoost model tidak tersedia.")
-    return None
+        logger.warning("MLflow load failed (%s), fallback ke cache...", e)
+
+    if os.path.exists(model_cache) and os.path.exists(scaler_cache):
+        with open(model_cache, "rb") as f:
+            model = pickle.load(f)
+        with open(scaler_cache, "rb") as f:
+            scaler = pickle.load(f)
+        meta = {}
+        if os.path.exists(meta_cache):
+            with open(meta_cache) as f:
+                meta = json.load(f)
+        logger.info("Model+scaler loaded from cache (v%s)", meta.get("model_version", "?"))
+        _INFERENCE_ARTIFACTS = (model, scaler, meta.get("model_version", "0"))
+        return
+
+    logger.warning("Model+scaler tidak tersedia — inference akan di-skip")
+    _INFERENCE_ARTIFACTS = (None, None, None)
 
 
 # ─── SparkSession ─────────────────────────────────────────────
@@ -315,11 +357,73 @@ def write_batch(batch_df, batch_id: int):
     except Exception as e:
         logger.warning("Gagal log pipeline_lineage: %s", e)
 
+    # ── Inference: prediksi volatilitas ───────────────────────
+    model, scaler, model_version = _INFERENCE_ARTIFACTS or (None, None, None)
+    if model is None and batch_id % 10 == 0:
+        load_model_and_scaler()
+        model, scaler, model_version = _INFERENCE_ARTIFACTS or (None, None, None)
+    if model is not None:
+        try:
+            import numpy as np
+            conn2 = _pg_conn(PGBOUNCER_HOST, PGBOUNCER_PORT)
+            with conn2.cursor() as cur:
+                cur.execute("""
+                    SELECT window_start, rolling_vol_5m, price_range_ratio, vol_ratio,
+                           compound_score, positive_ratio, tweet_count, minutes_since_sentiment
+                    FROM v_ml_features
+                    ORDER BY window_start DESC LIMIT 1
+                """)
+                row = cur.fetchone()
+            conn2.close()
+
+            if row:
+                window_start = row[0]
+                features = np.array([list(row[1:])]).astype(float)
+                features_s = scaler.transform(features)
+                pred = float(model.predict(features_s)[0])
+
+                # Write ke btc_predictions
+                conn3 = _pg_conn(PGBOUNCER_HOST, PGBOUNCER_PORT)
+                with conn3.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO btc_predictions
+                            (window_start, predicted_vol, model_version)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (window_start) DO UPDATE
+                            SET predicted_vol = EXCLUDED.predicted_vol,
+                                model_version = EXCLUDED.model_version
+                    """, (window_start, pred, model_version))
+                conn3.commit()
+                conn3.close()
+                logger.info("Prediksi batch %d: vol=%.8f (model v%s)", batch_id, pred, model_version)
+
+                # Write ke Kafka volatility_pred
+                try:
+                    from pyspark.sql import Row
+                    pred_row = Row(
+                        window_start=str(window_start),
+                        predicted_vol=pred,
+                        model_version=model_version,
+                        batch_id=batch_id,
+                    )
+                    df_pred = batch_df.sparkSession.createDataFrame([pred_row])
+                    df_pred.selectExpr(
+                        "CAST(window_start AS STRING) AS key",
+                        "to_json(struct(*)) AS value"
+                    ).write.format("kafka") \
+                        .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
+                        .option("topic", KAFKA_TOPIC_PRED) \
+                        .save()
+                except Exception as e:
+                    logger.warning("Gagal write prediksi ke Kafka: %s", e)
+        except Exception as e:
+            logger.warning("Gagal inference batch %d: %s", batch_id, e)
+
 
 # ─── Main ─────────────────────────────────────────────────────
 def main():
     logger.info("Memulai Spark Structured Streaming job...")
-    load_xgb_model()   # preload — cache jika MLflow tersedia
+    load_model_and_scaler()   # preload model + scaler
 
     spark = create_spark_session()
     windowed = build_stream(spark)
