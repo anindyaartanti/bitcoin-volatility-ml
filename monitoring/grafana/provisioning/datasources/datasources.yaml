@@ -1,0 +1,25 @@
+# =============================================================
+# monitoring/grafana/provisioning/datasources/datasources.yaml
+# Auto-provision datasource PostgreSQL saat Grafana start
+# =============================================================
+
+apiVersion: 1
+
+datasources:
+  - name: PostgreSQL
+    type: postgres
+    uid: btcdb-postgres
+    url: postgres:5432
+    user: btcadmin
+    secureJsonData:
+      password: gantiPasswordAman123
+    jsonData:
+      database: btcdb
+      sslmode: disable
+      maxOpenConns: 10
+      maxIdleConns: 10
+      connMaxLifetime: 14400
+      postgresVersion: 1500   # PostgreSQL 15
+      timescaledb: false
+    isDefault: true
+    editable: false

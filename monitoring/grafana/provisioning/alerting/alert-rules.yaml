@@ -1,0 +1,113 @@
+apiVersion: 1
+groups:
+  - name: BTC Pipeline
+    folder: BTC Pipeline
+    interval: 30s
+    rules:
+      - uid: no_new_predictions
+        title: "No New Predictions"
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: btcdb-postgres
+            model:
+              format: table
+              rawSql: |
+                SELECT COUNT(*) AS cnt
+                FROM btc_predictions
+                WHERE window_start > NOW() - INTERVAL '15 minutes'
+              refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+        evaluations:
+          - condition: "A == 0"
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "Tidak ada prediksi baru dalam 15 menit"
+          description: "Pipeline inference mungkin berhenti. Periksa spark-streaming-job."
+        labels:
+          severity: warning
+
+      - uid: high_volatility
+        title: "High Volatility Alert"
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: btcdb-postgres
+            model:
+              format: table
+              rawSql: |
+                SELECT AVG(predicted_vol) AS avg_vol
+                FROM btc_predictions
+                WHERE window_start > NOW() - INTERVAL '1 hour'
+              refId: A
+            relativeTimeRange:
+              from: 3600
+              to: 0
+        evaluations:
+          - condition: "A > 0.1"
+        noDataState: NoData
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: "Volatilitas tinggi terdeteksi!"
+          description: "Rata-rata prediksi volatilitas dalam 1 jam terakhir > 0.1. Ada potensi pergerakan harga besar."
+        labels:
+          severity: critical
+
+      - uid: pipeline_stale
+        title: "Pipeline Stale — Sentimen > 2 Jam"
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: btcdb-postgres
+            model:
+              format: table
+              rawSql: |
+                SELECT COUNT(*) AS cnt
+                FROM sentiment_30m
+                WHERE created_at > NOW() - INTERVAL '2 hours'
+              refId: A
+            relativeTimeRange:
+              from: 7200
+              to: 0
+        evaluations:
+          - condition: "A == 0"
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: "Sentimen pipeline stale > 2 jam"
+          description: "Tidak ada data sentimen baru dalam 2 jam. Periksa prefect agent dan sentiment_flow."
+        labels:
+          severity: warning
+
+      - uid: data_gap
+        title: "Data Gap — OHLC > 5 Menit"
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: btcdb-postgres
+            model:
+              format: table
+              rawSql: |
+                SELECT COUNT(*) AS cnt
+                FROM btc_ohlc_1m
+                WHERE window_start > NOW() - INTERVAL '5 minutes'
+              refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+        evaluations:
+          - condition: "A == 0"
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: "Data OHLC terputus > 5 menit"
+          description: "Tidak ada data OHLC baru. Periksa binance-producer dan spark-streaming-job."
+        labels:
+          severity: critical
