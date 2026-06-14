@@ -542,8 +542,8 @@ services:
       context: ./dashboard
       dockerfile: Dockerfile
     container_name: dashboard
-    ports:
-      - "8501:8501"
+    expose:
+      - "8501"
     environment:
       # PostgreSQL (data real-time)
       PG_HOST: postgres
@@ -560,6 +560,29 @@ services:
         condition: service_healthy
       trino:
         condition: service_healthy
+    networks:
+      - bigdata_net
+
+  # ─────────────────────────────────────────
+  # NGINX REVERSE PROXY
+  # HTTPS + Basic Auth untuk Streamlit
+  # ─────────────────────────────────────────
+  nginx:
+    build:
+      context: ./security/nginx
+      dockerfile: Dockerfile
+    container_name: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      NGINX_AUTH_USER: ${NGINX_AUTH_USER:-admin}
+      NGINX_AUTH_PASSWORD: ${NGINX_AUTH_PASSWORD:-admin123}
+    volumes:
+      - ./security/nginx/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
+      - ./security/nginx/nginx.key:/etc/nginx/ssl/nginx.key:ro
+    depends_on:
+      - dashboard
     networks:
       - bigdata_net
 
