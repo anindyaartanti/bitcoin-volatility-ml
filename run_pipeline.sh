@@ -5,28 +5,20 @@ cd "$(dirname "$0")"
 export MINIO_ENDPOINT=http://localhost:9000
 export MINIO_ACCESS_KEY=minioadmin
 export MINIO_SECRET_KEY=k4ipbd_minio_2026
+export PREFECT_API_URL=http://localhost:4200/api
 
 case "${1:-help}" in
-  twitter)
-    python ingestion/twitter_batch.py \
-      --query "bitcoin OR BTC -is:retweet lang:en" \
-      --limit 200 \
-      --minio-endpoint localhost:9000
-    ;;
   sentiment)
-    python processing/batch_sentiment.py \
-      --hours 6 \
-      --minio-endpoint localhost:9000
+    python prefect/flows/sentiment_flow.py
     ;;
   train)
-    python prefect/flows/model_training.py
+    python prefect/flows/training_flow.py
     ;;
-  all)
-    $0 twitter
-    $0 sentiment
+  deploy)
+    cd prefect/flows && python deploy_all.py
     ;;
   *)
-    echo "Usage: $0 {twitter|sentiment|train|all}"
+    echo "Usage: $0 {sentiment|train|deploy}"
     exit 1
     ;;
 esac

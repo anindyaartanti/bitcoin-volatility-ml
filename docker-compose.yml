@@ -436,7 +436,7 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: btcdb
+      DB_NAME: ${POSTGRES_DB_APP}
       DB_USER: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       POOL_MODE: transaction

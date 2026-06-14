@@ -212,6 +212,8 @@ def score_and_store(parquet_path: str, window_start: datetime, run_id: str):
             except Exception:
                 return 0.0
     except ImportError:
+        import nltk
+        nltk.download('vader_lexicon', quiet=True)
         from nltk.sentiment.vader import SentimentIntensityAnalyzer
         _sia = SentimentIntensityAnalyzer()
         def _score(text):

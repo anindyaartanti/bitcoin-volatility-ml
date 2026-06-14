@@ -7,14 +7,23 @@ PySpark Structured Streaming: Kafka @trade → tumbling window 1m → btc_ohlc_1
 - pybreaker circuit breaker di setiap PostgreSQL write
 - Log pipeline_lineage setelah setiap micro-batch
 - XGBoost model cache fallback /tmp/xgb_model_cache
+- Real-time inference → volatility_pred table + Kafka topic
 """
 
+import json
 import logging
 import os
+import pickle
 import sys
+import threading
+import time
+from datetime import datetime, timezone
 
+import joblib
+import numpy as np
 import pybreaker
 import requests
+from confluent_kafka import Producer
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
@@ -34,6 +43,7 @@ from config import (
     MINIO_ACCESS_KEY,
     MINIO_ENDPOINT,
     MINIO_SECRET_KEY,
+    CHECKPOINT_PATH,
 )
 
 logging.basicConfig(
@@ -52,10 +62,23 @@ PG_USER         = os.getenv("APP_DB_USER", "kelompok4_ipbd")
 PG_PASSWORD     = os.getenv("APP_DB_PASSWORD", "")
 KAFKA_DLQ_TOPIC = os.getenv("KAFKA_DLQ_TOPIC", "btc_ticker_dlq")
 MLFLOW_URI      = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
-CHECKPOINT_PATH = "s3a://checkpoints/spark-streaming/"
 XGB_CACHE_PATH  = "/tmp/xgb_model_cache"
 TELEGRAM_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT   = os.getenv("TELEGRAM_CHAT_ID", "")
+
+FEATURE_COLS = [
+    "rolling_vol_5m", "price_range_ratio", "vol_ratio",
+    "compound_score", "positive_ratio", "tweet_count", "minutes_since_sentiment",
+]
+
+# ─── Sentiment cache ──────────────────────────────────────────
+_sentiment_cache = {
+    "compound_score": 0.0,
+    "positive_ratio": 0.5,
+    "tweet_count": 0.0,
+    "minutes_since_sentiment": 30.0,
+    "updated_at": None,
+}
 
 # ─── Schema pesan @trade dari Binance ────────────────────────
 TRADE_SCHEMA = StructType([
@@ -123,13 +146,8 @@ def _log_audit_direct(detail: str):
         logger.error("Fallback audit log gagal: %s", e)
 
 
-# ─── Inference artifacts ─────────────────────────────────────
+# ─── Inference artifacts (shared by sentiment cache & write_batch) ─
 _INFERENCE_ARTIFACTS = None  # (model, scaler, model_version)
-
-FEATURE_COLS = [
-    "rolling_vol_5m", "price_range_ratio", "vol_ratio",
-    "compound_score", "positive_ratio", "tweet_count", "minutes_since_sentiment",
-]
 
 def load_model_and_scaler():
     """Load XGBoost model + scaler dari MLflow, cache ke /tmp."""
@@ -167,7 +185,6 @@ def load_model_and_scaler():
                 pickle.dump(scaler, f)
             with open(meta_cache, "w") as f:
                 json.dump({"model_version": mv[0].version, "run_id": run_id}, f)
-
             logger.info("Model+scaler loaded from MLflow (v%s)", mv[0].version)
             _INFERENCE_ARTIFACTS = (model, scaler, mv[0].version)
             return
@@ -189,6 +206,121 @@ def load_model_and_scaler():
 
     logger.warning("Model+scaler tidak tersedia — inference akan di-skip")
     _INFERENCE_ARTIFACTS = (None, None, None)
+
+
+# ─── Sentiment cache refresh ─────────────────────────────────
+def refresh_sentiment_cache():
+    try:
+        conn = _pg_conn(PG_DIRECT_HOST, PG_DIRECT_PORT)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT compound_score, positive_ratio, tweet_count,
+                       EXTRACT(EPOCH FROM (NOW() - window_start)) / 60.0
+                           AS minutes_since_sentiment
+                FROM sentiment_30m
+                ORDER BY window_start DESC
+                LIMIT 1
+                """
+            )
+            row = cur.fetchone()
+            if row:
+                _sentiment_cache["compound_score"]          = float(row[0]) if row[0] is not None else 0.0
+                _sentiment_cache["positive_ratio"]          = float(row[1]) if row[1] is not None else 0.5
+                _sentiment_cache["tweet_count"]             = float(row[2]) if row[2] is not None else 0.0
+                _sentiment_cache["minutes_since_sentiment"] = float(row[3]) if row[3] is not None else 30.0
+                _sentiment_cache["updated_at"]              = datetime.now(timezone.utc)
+                logger.info(
+                    "Sentiment cache diperbarui: compound=%.4f, minutes_since=%.1f",
+                    _sentiment_cache["compound_score"],
+                    _sentiment_cache["minutes_since_sentiment"],
+                )
+        conn.close()
+    except Exception as e:
+        logger.warning("Gagal refresh sentiment cache: %s", e)
+
+
+def start_sentiment_cache_thread():
+    def _loop():
+        while True:
+            refresh_sentiment_cache()
+            time.sleep(1800)
+
+    t = threading.Thread(target=_loop, daemon=True)
+    t.start()
+
+
+# ─── Volatility pred table DDL ────────────────────────────────
+def ensure_volatility_pred_table(conn):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS volatility_pred (
+                id                      BIGSERIAL PRIMARY KEY,
+                window_start            TIMESTAMPTZ NOT NULL UNIQUE,
+                predicted_vol_5m        NUMERIC(10,8) NOT NULL CHECK (predicted_vol_5m >= 0),
+                rolling_vol_5m          NUMERIC(10,8),
+                price_range_ratio       NUMERIC(8,6),
+                vol_ratio               NUMERIC(8,4),
+                compound_score          NUMERIC(6,4),
+                minutes_since_sentiment NUMERIC(6,2),
+                model_version           VARCHAR(20),
+                inference_latency_ms    INTEGER,
+                created_at              TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_vp_window ON volatility_pred (window_start DESC);
+            """
+        )
+        try:
+            cur.execute("GRANT SELECT ON volatility_pred TO dashboard_reader;")
+        except Exception as e:
+            logger.warning("Gagal grant ke dashboard_reader (role mungkin belum ada): %s", e)
+    conn.commit()
+
+
+# ─── Write predictions ────────────────────────────────────────
+def write_predictions(pred_rows, conn):
+    """Tulis prediksi ke volatility_pred dan produce ke Kafka topic volatility_pred."""
+    with conn.cursor() as cur:
+        for _, row in pred_rows.iterrows():
+            cur.execute(
+                """
+                INSERT INTO volatility_pred
+                    (window_start, predicted_vol_5m, rolling_vol_5m, price_range_ratio,
+                     vol_ratio, compound_score, minutes_since_sentiment,
+                     model_version, inference_latency_ms)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (window_start) DO UPDATE SET
+                    predicted_vol_5m     = EXCLUDED.predicted_vol_5m,
+                    model_version        = EXCLUDED.model_version,
+                    inference_latency_ms = EXCLUDED.inference_latency_ms
+                """,
+                (
+                    row["window_start"],
+                    float(row["predicted_vol_5m"]),
+                    float(row["rolling_vol_5m"])      if row["rolling_vol_5m"] is not None      else None,
+                    float(row["price_range_ratio"])   if row["price_range_ratio"] is not None   else None,
+                    float(row["vol_ratio"])           if row["vol_ratio"] is not None           else None,
+                    float(row["compound_score"]),
+                    float(row["minutes_since_sentiment"]),
+                    str(row["model_version"]),
+                    int(row["inference_latency_ms"]),
+                ),
+            )
+    conn.commit()
+
+    try:
+        producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
+        for _, row in pred_rows.iterrows():
+            msg = json.dumps({
+                "window_start":     row["window_start"].isoformat() if hasattr(row["window_start"], "isoformat") else str(row["window_start"]),
+                "predicted_vol_5m": float(row["predicted_vol_5m"]),
+                "model_version":    str(row["model_version"]),
+            })
+            producer.produce("volatility_pred", msg.encode("utf-8"))
+        producer.flush()
+    except Exception as e:
+        logger.warning("Gagal produce prediksi ke Kafka: %s", e)
 
 
 # ─── SparkSession ─────────────────────────────────────────────
@@ -276,8 +408,8 @@ def build_stream(spark: SparkSession):
     return windowed
 
 
-# ─── ForeachBatch: write via PgBouncer + lineage ──────────────
-def write_batch(batch_df, batch_id: int):
+# ─── ForeachBatch: write via PgBouncer + inference + lineage ──
+def write_batch(batch_df, batch_id: int, xgb_model=None, scaler=None, model_version="cached"):
     if batch_df.rdd.isEmpty():
         logger.info("Batch %d kosong.", batch_id)
         return
@@ -329,10 +461,65 @@ def write_batch(batch_df, batch_id: int):
         logger.error("Batch %d write error: %s", batch_id, e)
         raise
 
+    # ── Feature engineering ───────────────────────────────────
+    rows["rolling_vol_5m"]    = rows["close"].pct_change().rolling(5).std()
+    rows["price_range_ratio"] = (rows["high"] - rows["low"]) / rows["close"].replace(0, float("nan"))
+    rows["vol_ratio"]         = rows["volume"] / rows["volume"].rolling(10).mean()
+
+    infer_rows           = rows.dropna(subset=["rolling_vol_5m"])
+    inference_rows_count = 0
+    infer_model_version  = "none"
+
+    # ── Inference ─────────────────────────────────────────────
+    if xgb_model is None or scaler is None:
+        logger.warning("Batch %d: model atau scaler tidak tersedia, skip inference.", batch_id)
+    elif infer_rows.empty:
+        logger.info("Batch %d: semua rolling_vol_5m NaN (batch terlalu kecil), skip inference.", batch_id)
+    else:
+        infer_rows = infer_rows.copy()
+        infer_rows["compound_score"]          = _sentiment_cache["compound_score"]
+        infer_rows["positive_ratio"]          = _sentiment_cache["positive_ratio"]
+        infer_rows["tweet_count"]             = _sentiment_cache["tweet_count"]
+        infer_rows["minutes_since_sentiment"] = _sentiment_cache["minutes_since_sentiment"]
+
+        feature_matrix = infer_rows[FEATURE_COLS].values
+        t0 = time.time()
+        scaled_features = scaler.transform(feature_matrix)
+        predictions     = xgb_model.predict(scaled_features)
+        inference_latency_ms = int((time.time() - t0) * 1000)
+
+        infer_rows["predicted_vol_5m"]    = predictions
+        infer_rows["model_version"]       = model_version
+        infer_rows["inference_latency_ms"] = inference_latency_ms
+        inference_rows_count = len(infer_rows)
+        infer_model_version  = model_version
+
+        logger.info(
+            "Batch %d: %d prediksi (latency=%dms, model=%s)",
+            batch_id, inference_rows_count, inference_latency_ms, model_version,
+        )
+
+        pred_cols = [
+            "window_start", "predicted_vol_5m", "rolling_vol_5m", "price_range_ratio",
+            "vol_ratio", "compound_score", "minutes_since_sentiment",
+            "model_version", "inference_latency_ms",
+        ]
+        try:
+            pred_conn = _pg_conn(PGBOUNCER_HOST, PGBOUNCER_PORT)
+
+            @pg_breaker
+            def _write_preds(c):
+                write_predictions(infer_rows[pred_cols], c)
+
+            _write_preds(pred_conn)
+            pred_conn.close()
+        except pybreaker.CircuitBreakerError:
+            logger.warning("Batch %d: circuit breaker OPEN — skip write_predictions.", batch_id)
+        except Exception as e:
+            logger.warning("Batch %d: gagal write_predictions: %s", batch_id, e)
+
     # ── Log pipeline_lineage ──────────────────────────────────
     try:
-        import json
-        from datetime import datetime, timezone
         conn = _pg_conn(PGBOUNCER_HOST, PGBOUNCER_PORT)
         with conn.cursor() as cur:
             cur.execute(
@@ -349,7 +536,12 @@ def write_batch(batch_df, batch_id: int):
                     rows_written,
                     rows_rejected,
                     "ok",
-                    json.dumps({"window": "1 minute", "batch_id": batch_id}),
+                    json.dumps({
+                        "window":          "1 minute",
+                        "batch_id":        batch_id,
+                        "model_version":   infer_model_version,
+                        "inference_rows":  inference_rows_count,
+                    }),
                 ),
             )
         conn.commit()
@@ -357,81 +549,29 @@ def write_batch(batch_df, batch_id: int):
     except Exception as e:
         logger.warning("Gagal log pipeline_lineage: %s", e)
 
-    # ── Inference: prediksi volatilitas ───────────────────────
-    model, scaler, model_version = _INFERENCE_ARTIFACTS or (None, None, None)
-    if model is None and batch_id % 10 == 0:
-        load_model_and_scaler()
-        model, scaler, model_version = _INFERENCE_ARTIFACTS or (None, None, None)
-    if model is not None:
-        try:
-            import numpy as np
-            conn2 = _pg_conn(PGBOUNCER_HOST, PGBOUNCER_PORT)
-            with conn2.cursor() as cur:
-                cur.execute("""
-                    SELECT window_start, rolling_vol_5m, price_range_ratio, vol_ratio,
-                           compound_score, positive_ratio, tweet_count, minutes_since_sentiment
-                    FROM v_ml_features
-                    ORDER BY window_start DESC LIMIT 1
-                """)
-                row = cur.fetchone()
-            conn2.close()
-
-            if row:
-                window_start = row[0]
-                features = np.array([list(row[1:])]).astype(float)
-                features_s = scaler.transform(features)
-                pred = float(model.predict(features_s)[0])
-
-                # Write ke btc_predictions
-                conn3 = _pg_conn(PGBOUNCER_HOST, PGBOUNCER_PORT)
-                with conn3.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO btc_predictions
-                            (window_start, predicted_vol, model_version)
-                        VALUES (%s, %s, %s)
-                        ON CONFLICT (window_start) DO UPDATE
-                            SET predicted_vol = EXCLUDED.predicted_vol,
-                                model_version = EXCLUDED.model_version
-                    """, (window_start, pred, model_version))
-                conn3.commit()
-                conn3.close()
-                logger.info("Prediksi batch %d: vol=%.8f (model v%s)", batch_id, pred, model_version)
-
-                # Write ke Kafka volatility_pred
-                try:
-                    from pyspark.sql import Row
-                    pred_row = Row(
-                        window_start=str(window_start),
-                        predicted_vol=pred,
-                        model_version=model_version,
-                        batch_id=batch_id,
-                    )
-                    df_pred = batch_df.sparkSession.createDataFrame([pred_row])
-                    df_pred.selectExpr(
-                        "CAST(window_start AS STRING) AS key",
-                        "to_json(struct(*)) AS value"
-                    ).write.format("kafka") \
-                        .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
-                        .option("topic", KAFKA_TOPIC_PRED) \
-                        .save()
-                except Exception as e:
-                    logger.warning("Gagal write prediksi ke Kafka: %s", e)
-        except Exception as e:
-            logger.warning("Gagal inference batch %d: %s", batch_id, e)
-
 
 # ─── Main ─────────────────────────────────────────────────────
 def main():
     logger.info("Memulai Spark Structured Streaming job...")
-    load_model_and_scaler()   # preload model + scaler
+    load_model_and_scaler()
+
+    start_sentiment_cache_thread()
+
+    conn_direct = _pg_conn(PG_DIRECT_HOST, PG_DIRECT_PORT)
+    ensure_volatility_pred_table(conn_direct)
+    conn_direct.close()
 
     spark = create_spark_session()
     windowed = build_stream(spark)
 
+    def _write_batch(batch_df, batch_id):
+        model, scaler, model_version = _INFERENCE_ARTIFACTS
+        write_batch(batch_df, batch_id, model, scaler, model_version)
+
     query = (
         windowed
         .writeStream
-        .foreachBatch(write_batch)
+        .foreachBatch(_write_batch)
         .option("checkpointLocation", CHECKPOINT_PATH)
         .outputMode("update")
         .trigger(processingTime="30 seconds")

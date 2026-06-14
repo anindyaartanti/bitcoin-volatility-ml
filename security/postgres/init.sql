@@ -14,6 +14,11 @@ BEGIN
     CREATE ROLE dashboard_reader WITH LOGIN PASSWORD 'k4ipbd_reader_2026';
   END IF;
 END$$;
+
+-- ─── DROP OLD SCHEMA (migration from dev) ────────────────────
+DROP TABLE IF EXISTS sentiment_hourly CASCADE;
+DROP TABLE IF EXISTS predictions CASCADE;
+DROP TABLE IF EXISTS metadata_table CASCADE;
 -- NOTE: Ganti password dashboard_reader via:
 --   ALTER ROLE dashboard_reader PASSWORD '<isi k4ipbd_reader_2026 dari .env>'
 -- Password tidak bisa dibaca dari env saat init.sql dijalankan oleh postgres entrypoint.
@@ -54,6 +59,23 @@ CREATE TABLE IF NOT EXISTS sentiment_30m (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sentiment_30m_window ON sentiment_30m (window_start DESC);
+
+-- ─── volatility_pred ───────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS volatility_pred (
+    id                      BIGSERIAL PRIMARY KEY,
+    window_start            TIMESTAMPTZ NOT NULL UNIQUE,
+    predicted_vol_5m        NUMERIC(10,8) NOT NULL CHECK (predicted_vol_5m >= 0),
+    rolling_vol_5m          NUMERIC(10,8),
+    price_range_ratio       NUMERIC(8,6),
+    vol_ratio               NUMERIC(8,4),
+    compound_score          NUMERIC(6,4),
+    minutes_since_sentiment NUMERIC(6,2),
+    model_version           VARCHAR(20),
+    inference_latency_ms    INTEGER,
+    created_at              TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_vp_window ON volatility_pred (window_start DESC);
 
 -- ─── pipeline_lineage ────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS pipeline_lineage (
@@ -205,4 +227,4 @@ BEGIN
 END$$;
 
 -- ─── GRANTS ──────────────────────────────────────────────────
-GRANT SELECT ON btc_ohlc_1m, sentiment_30m, pipeline_lineage, audit_log, btc_predictions TO dashboard_reader;
+GRANT SELECT ON btc_ohlc_1m, sentiment_30m, volatility_pred, btc_predictions, pipeline_lineage, audit_log TO dashboard_reader;

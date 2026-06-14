@@ -44,7 +44,7 @@ done
 echo "MinIO siap."
 
 echo "Installing dependency..."
-pip install psycopg2-binary pybreaker requests "mlflow==2.10.2" "xgboost==2.0.3" "scikit-learn==1.3.2" joblib numpy
+pip install psycopg2-binary pybreaker requests "mlflow==2.10.2" "xgboost==2.0.3" "scikit-learn==1.4.0" joblib confluent-kafka numpy
 
 echo "Semua dependency siap. Menjalankan spark-submit..."
 

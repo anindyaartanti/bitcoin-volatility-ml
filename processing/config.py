@@ -10,7 +10,6 @@ import os
 # ─── Kafka ───────────────────────────────────────────────────
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
 KAFKA_TOPIC_RAW         = os.getenv("KAFKA_TOPIC", "btc_ticker_raw")
-KAFKA_TOPIC_PRED        = os.getenv("KAFKA_TOPIC_PRED", "volatility_pred")
 
 # ─── PostgreSQL ──────────────────────────────────────────────
 PG_HOST     = os.getenv("APP_DB_HOST", "postgres")
@@ -31,8 +30,8 @@ MINIO_ENDPOINT   = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "k4ipbd_minio_2026")
 
-CHECKPOINT_BUCKET = "spark-checkpoints"
-CHECKPOINT_PATH   = f"s3a://{CHECKPOINT_BUCKET}/stream_processor"
+CHECKPOINT_BUCKET = "checkpoints"
+CHECKPOINT_PATH   = f"s3a://{CHECKPOINT_BUCKET}/spark-streaming"
 
 # ─── Spark packages (dipakai saat spark-submit) ──────────────
 SPARK_PACKAGES = ",".join([
