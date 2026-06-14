@@ -235,7 +235,10 @@ services:
   # Menyimpan skema tabel Parquet di MinIO
   # ─────────────────────────────────────────
   hive-metastore:
-    image: bitsondatadev/hive-metastore:latest
+    build:
+      context: .
+      dockerfile: docker/hive/Dockerfile
+    image: btc-volatility-hive-metastore:latest
     container_name: hive-metastore
     environment:
       METASTORE_DB_HOSTNAME: postgres
@@ -267,7 +270,9 @@ services:
   # Tracking server + Model Registry
   # ─────────────────────────────────────────
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.10.2
+    build:
+      context: ./docker/mlflow
+      dockerfile: Dockerfile
     container_name: mlflow
     command: >
       mlflow server
@@ -333,18 +338,20 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-grafana123}
-      GF_SERVER_ROOT_URL: ${GF_SERVER_ROOT_URL:-http://localhost:3000}
-      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "false"
       # Provisioning otomatis datasource & dashboard
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
       # Disable telemetry
       GF_ANALYTICS_REPORTING_ENABLED: "false"
+      # Telegram untuk alerting
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "3000:3000"
+      - "3001:3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -523,6 +530,36 @@ services:
       pgbouncer:
         condition: service_healthy
     restart: on-failure
+    networks:
+      - bigdata_net
+
+  # ─────────────────────────────────────────
+  # STREAMLIT DASHBOARD
+  # UI interaktif dengan Trino federated query
+  # ─────────────────────────────────────────
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      # PostgreSQL (data real-time)
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_DB: ${POSTGRES_DB_APP}
+      PG_USER: ${POSTGRES_USER}
+      PG_PASSWORD: ${POSTGRES_PASSWORD}
+      # Trino (federated query)
+      TRINO_HOST: trino
+      TRINO_PORT: "8080"
+      TRINO_USER: btcadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+      trino:
+        condition: service_healthy
     networks:
       - bigdata_net
 
