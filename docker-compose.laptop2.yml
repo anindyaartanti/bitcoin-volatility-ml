@@ -1,0 +1,42 @@
+services:
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: dashboard
+    expose:
+      - "8501"
+    environment:
+      PG_HOST: ${LAPTOP1_TAILSCALE_IP}
+      PG_PORT: "5434"
+      PG_DB: ${POSTGRES_DB_APP:-btcdb}
+      PG_USER: ${POSTGRES_USER:-btcadmin}
+      PG_PASSWORD: ${POSTGRES_PASSWORD:-gantiPasswordAman123}
+      TRINO_HOST: ${LAPTOP1_TAILSCALE_IP}
+      TRINO_PORT: "8082"
+      TRINO_USER: btcadmin
+    networks:
+      - bigdata_net
+
+  nginx:
+    build:
+      context: ./security/nginx
+      dockerfile: Dockerfile
+    container_name: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      NGINX_AUTH_USER: ${NGINX_AUTH_USER:-admin}
+      NGINX_AUTH_PASSWORD: ${NGINX_AUTH_PASSWORD:-admin123}
+    volumes:
+      - ./security/nginx/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
+      - ./security/nginx/nginx.key:/etc/nginx/ssl/nginx.key:ro
+    depends_on:
+      - dashboard
+    networks:
+      - bigdata_net
+
+networks:
+  bigdata_net:
+    driver: bridge
