@@ -299,7 +299,7 @@ bitcoin-volatility-ml/
 ### 5.3 Storage
 
 **MinIO (Data Lake)**
-- API: `http://minio:9000`, Console: `http://localhost:9001`.
+- API: `http://minio:9000`, Console: `http://localhost:9003`.
 - Bucket:
   - `twitter-raw` — Parquet mentah hasil tweet-harvest.
   - `mlflow-artifacts` — artefak model dari MLflow.
@@ -431,8 +431,8 @@ docker compose up -d
 | Service         | URL                          | Login              |
 |-----------------|------------------------------|--------------------|
 | Airflow         | http://localhost:8080        | dari `.env`        |
-| MinIO Console   | http://localhost:9001        | dari `.env`        |
-| MLflow          | http://localhost:5000        | —                  |
+| MinIO Console   | http://localhost:9003        | dari `.env`        |
+| MLflow          | http://localhost:5001        | —                  |
 | Spark Master    | http://localhost:8081        | —                  |
 | Trino           | http://localhost:8082        | —                  |
 | Grafana         | https://localhost/grafana    | dari `.env`        |

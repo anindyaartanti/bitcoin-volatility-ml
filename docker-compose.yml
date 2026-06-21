@@ -25,6 +25,9 @@ x-prefect-common: &prefect-common
     APP_DB_PASSWORD: ${POSTGRES_PASSWORD}
     # MLflow
     MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+    MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+    AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
     # Twitter
     TWITTER_AUTH_TOKEN: ${TWITTER_AUTH_TOKEN}
     TWITTER_SCRAPE_LIMIT: ${TWITTER_SCRAPE_LIMIT:-200}
@@ -120,6 +123,23 @@ services:
       - bigdata_net
 
   # ─────────────────────────────────────────
+  # KAFKA UI (monitoring)
+  # ─────────────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8083:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - bigdata_net
+
+  # ─────────────────────────────────────────
   # POSTGRESQL
   # ─────────────────────────────────────────
   postgres:
@@ -158,8 +178,8 @@ services:
     volumes:
       - minio_data:/data
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9002:9000"
+      - "9003:9001"
     networks:
       - bigdata_net
     healthcheck:
@@ -270,7 +290,9 @@ services:
   # Tracking server + Model Registry
   # ─────────────────────────────────────────
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.10.2
+    build:
+      context: ./ml/mlflow
+      dockerfile: Dockerfile
     container_name: mlflow
     command: >
       mlflow server
@@ -284,7 +306,7 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
     ports:
-      - "5000:5000"
+      - "5001:5000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -375,7 +397,7 @@ services:
     environment:
       PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/prefectdb
     ports:
-      - "4200:4200"
+      - "4201:4200"
     depends_on:
       postgres:
         condition: service_healthy
@@ -482,7 +504,9 @@ services:
   # SPARK STREAMING JOB
   # ─────────────────────────────────────────
   spark-streaming-job:
-    image: apache/spark:3.5.1
+    build:
+      context: ./processing
+      dockerfile: Dockerfile
     container_name: spark-streaming-job
     user: root
     environment:

@@ -222,7 +222,7 @@ Diisi oleh: `sentiment_flow.py` (task `harvest_tweets`), `stream_processor.py` (
 **Application logging:**
 - `binance_producer.py`: Python `logging` level INFO/WARNING/ERROR → stdout → `docker logs binance-producer`
 - `stream_processor.py`: Spark logging + custom logger `stream_processor` → `docker logs spark-streaming-job`
-- `sentiment_flow.py`: Prefect structured logging per task → Prefect UI (`http://localhost:4200`)
+- `sentiment_flow.py`: Prefect structured logging per task → Prefect UI (`http://localhost:4201`)
 
 ---
 
@@ -332,17 +332,17 @@ docker exec -it postgres psql -U kelompok4_ipbd -d btcdb \
 # Tunggu 1-2 menit, harus ada rows
 
 # 5. Trigger sentiment pipeline (atau tunggu 30 menit otomatis)
-# Buka http://localhost:4200 → Deployments → sentiment-pipeline → Quick Run
+# Buka http://localhost:4201 → Deployments → sentiment-pipeline → Quick Run
 
 # 6. Verifikasi sentimen → PostgreSQL
 docker exec -it postgres psql -U kelompok4_ipbd -d btcdb \
   -c "SELECT window_start, compound_score, tweet_count, data_quality FROM sentiment_30m ORDER BY window_start DESC LIMIT 5;"
 
 # 7. Akses semua dashboard
-# Prefect UI   : http://localhost:4200
+# Prefect UI   : http://localhost:4201
 # Grafana      : http://localhost:3000   (kelompok4_ipbd / k4ipbd_grafana_2026)
-# MLflow       : http://localhost:5000
-# MinIO Console: http://localhost:9001   (minioadmin / k4ipbd_minio_2026)
+# MLflow       : http://localhost:5001
+# MinIO Console: http://localhost:9003   (minioadmin / k4ipbd_minio_2026)
 # Trino UI     : http://localhost:8082
 # Spark UI     : http://localhost:8081
 ```

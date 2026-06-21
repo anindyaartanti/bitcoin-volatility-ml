@@ -59,9 +59,9 @@ docker compose up -d --build
 | Dashboard   | `https://localhost`                   | kelompok4_ipbd / k4ipbd_nginx_2026 |
 | Grafana     | `http://localhost:3001`               | kelompok4_ipbd / k4ipbd_grafana_2026 |
 | Trino       | `http://localhost:8082`               | user: kelompok4_ipbd |
-| MinIO       | `http://localhost:9001`               | minioadmin / k4ipbd_minio_2026 |
-| MLflow      | `http://localhost:5000`               | -                     |
-| Prefect     | `http://localhost:4200`               | -                     |
+| MinIO       | `http://localhost:9003`               | minioadmin / k4ipbd_minio_2026 |
+| MLflow      | `http://localhost:5001`               | -                     |
+| Prefect     | `http://localhost:4201`               | -                     |
 
 ---
 
