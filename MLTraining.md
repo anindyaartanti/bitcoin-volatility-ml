@@ -189,10 +189,10 @@ docker exec postgres psql -U btcadmin -d btcdb \
   -c "SELECT COUNT(*) ohlc, (SELECT COUNT(*) FROM sentiment_30m) sentiment FROM btc_ohlc_1m;"
 
 # Trigger training manual (via Prefect)
-docker exec prefect-worker prefect deployment run 'model-training-weekly/model-training-weekly'
+docker exec prefect-worker prefect deployment run 'model-training-daily/model-training-daily'
 
 # Lihat MLflow experiments
-# Buka http://localhost:5000 → experiment: btc_volatility_prediction
+# Buka http://localhost:5001 → experiment: btc_volatility_prediction
 
 # Jalankan notebook eksplorasi
 jupyter notebook notebooks/exploration.ipynb

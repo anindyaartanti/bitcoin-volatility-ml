@@ -27,6 +27,7 @@ from confluent_kafka import Producer
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
+    BooleanType,
     DoubleType,
     LongType,
     StringType,
@@ -78,6 +79,26 @@ _sentiment_cache = {
     "minutes_since_sentiment": 30.0,
     "updated_at": None,
 }
+
+# ─── OHLC row buffer untuk rolling features ──────────────────
+from collections import deque
+_OHLC_BUFFER_SIZE = 30
+_ohlc_buffer = deque(maxlen=_OHLC_BUFFER_SIZE)
+
+
+def _append_to_buffer(rows: "pd.DataFrame") -> None:
+    cols = ["window_start", "open", "high", "low", "close", "volume", "trade_count", "volatility"]
+    for _, row in rows.iterrows():
+        _ohlc_buffer.append({
+            "window_start": row["window_start"],
+            "open": float(row["open"]),
+            "high": float(row["high"]),
+            "low": float(row["low"]),
+            "close": float(row["close"]),
+            "volume": float(row["volume"]),
+            "trade_count": int(row["trade_count"]),
+            "volatility": float(row["volatility"]) if row["volatility"] is not None else None,
+        })
 
 # ─── Schema pesan @trade dari Binance ────────────────────────
 TRADE_SCHEMA = StructType([
@@ -148,6 +169,22 @@ def _log_audit_direct(detail: str):
 # ─── Inference artifacts (shared by sentiment cache & write_batch) ─
 _INFERENCE_ARTIFACTS = None  # (model, scaler, model_version)
 
+def _load_model_version(client) -> dict:
+    try:
+        mv = client.get_model_version_by_alias("btc_volatility_xgb", "production")
+        return {"version": mv.version, "run_id": mv.run_id, "source": "alias"}
+    except Exception:
+        pass
+    try:
+        versions = client.search_model_versions("name='btc_volatility_xgb'")
+        if versions:
+            latest = max(versions, key=lambda v: int(v.version))
+            return {"version": latest.version, "run_id": latest.run_id, "source": "search"}
+    except Exception:
+        pass
+    return None
+
+
 def load_model_and_scaler():
     """Load XGBoost model + scaler dari MLflow, cache ke /tmp."""
     global _INFERENCE_ARTIFACTS
@@ -163,32 +200,34 @@ def load_model_and_scaler():
     try:
         mlflow.set_tracking_uri(MLFLOW_URI)
         client = MlflowClient()
-        mv = client.get_latest_versions("btc_volatility_xgb", stages=["Production"])
-        if not mv:
-            mv = client.get_latest_versions("btc_volatility_xgb", stages=["None"])
-        if not mv:
-            try:
-                reg_model = client.get_registered_model("btc_volatility_xgb")
-                mv = client.get_latest_versions("btc_volatility_xgb")
-            except Exception:
-                mv = None
-        if mv:
-            run_id = mv[0].run_id
+        info = _load_model_version(client)
+        if info is None:
+            logger.warning("Model btc_volatility_xgb belum terdaftar di MLflow.")
+        else:
+            run_id = info["run_id"]
+            version = info["version"]
             model = mlflow.xgboost.load_model(f"runs:/{run_id}/model")
+
             os.makedirs(cache_dir, exist_ok=True)
+            scaler_artifact_dir = os.path.join(cache_dir, "scaler")
             local_dir = client.download_artifacts(run_id, "scaler", dst_path=cache_dir)
-            scaler = joblib.load(f"{local_dir}/scaler.pkl")
+            scaler_path = os.path.join(local_dir, "scaler.pkl")
+            if not os.path.exists(scaler_path):
+                scaler_path = os.path.join(cache_dir, "scaler", "scaler.pkl")
+            scaler = joblib.load(scaler_path)
+
             with open(model_cache, "wb") as f:
                 pickle.dump(model, f)
             with open(scaler_cache, "wb") as f:
                 pickle.dump(scaler, f)
             with open(meta_cache, "w") as f:
-                json.dump({"model_version": mv[0].version, "run_id": run_id}, f)
-            logger.info("Model+scaler loaded from MLflow (v%s)", mv[0].version)
-            _INFERENCE_ARTIFACTS = (model, scaler, mv[0].version)
-            return
+                json.dump({"model_version": version, "run_id": run_id}, f)
+
+            logger.info("Model+scaler loaded from MLflow (v%s, source=%s)", version, info["source"])
+            _INFERENCE_ARTIFACTS = (model, scaler, version)
+            return True
     except Exception as e:
-        logger.warning("MLflow load failed (%s), fallback ke cache...", e)
+        logger.warning("MLflow load failed (%s: %s), fallback ke cache...", type(e).__name__, e)
 
     if os.path.exists(model_cache) and os.path.exists(scaler_cache):
         with open(model_cache, "rb") as f:
@@ -201,10 +240,26 @@ def load_model_and_scaler():
                 meta = json.load(f)
         logger.info("Model+scaler loaded from cache (v%s)", meta.get("model_version", "?"))
         _INFERENCE_ARTIFACTS = (model, scaler, meta.get("model_version", "0"))
-        return
+        return True
 
     logger.warning("Model+scaler tidak tersedia — inference akan di-skip")
     _INFERENCE_ARTIFACTS = (None, None, None)
+    return False
+
+
+def start_model_refresh_thread():
+    def _loop():
+        while True:
+            model, _, _ = _INFERENCE_ARTIFACTS or (None, None, None)
+            if model is None:
+                logger.info("Periodic reload: mencoba load model dari MLflow...")
+                ok = load_model_and_scaler()
+                if ok:
+                    logger.info("Periodic reload: model berhasil di-load, inference siap.")
+            time.sleep(300)
+
+    t = threading.Thread(target=_loop, daemon=True)
+    t.start()
 
 
 # ─── Sentiment cache refresh ─────────────────────────────────
@@ -416,6 +471,8 @@ def write_batch(batch_df, batch_id: int, xgb_model=None, scaler=None, model_vers
     rows = batch_df.toPandas()
     rows_written = 0
     rows_rejected = 0
+    inference_rows_count = 0
+    infer_model_version = "none"
 
     @pg_breaker
     def _write(conn):
@@ -460,62 +517,65 @@ def write_batch(batch_df, batch_id: int, xgb_model=None, scaler=None, model_vers
         logger.error("Batch %d write error: %s", batch_id, e)
         raise
 
-    # ── Feature engineering ───────────────────────────────────
-    rows["rolling_vol_5m"]    = rows["close"].pct_change().rolling(5).std()
-    rows["price_range_ratio"] = (rows["high"] - rows["low"]) / rows["close"].replace(0, float("nan"))
-    rows["vol_ratio"]         = rows["volume"] / rows["volume"].rolling(10).mean()
+    # ── Feature engineering via buffer ─────────────────────────
+    _append_to_buffer(rows)
 
-    infer_rows           = rows.dropna(subset=["rolling_vol_5m"])
-    inference_rows_count = 0
-    infer_model_version  = "none"
-
-    # ── Inference ─────────────────────────────────────────────
-    if xgb_model is None or scaler is None:
-        logger.warning("Batch %d: model atau scaler tidak tersedia, skip inference.", batch_id)
-    elif infer_rows.empty:
-        logger.info("Batch %d: semua rolling_vol_5m NaN (batch terlalu kecil), skip inference.", batch_id)
+    if len(_ohlc_buffer) < 6:
+        logger.info("Batch %d: buffer too small (%d < 6), skip inference.",
+                     batch_id, len(_ohlc_buffer))
     else:
-        infer_rows = infer_rows.copy()
-        infer_rows["compound_score"]          = _sentiment_cache["compound_score"]
-        infer_rows["positive_ratio"]          = _sentiment_cache["positive_ratio"]
-        infer_rows["tweet_count"]             = _sentiment_cache["tweet_count"]
-        infer_rows["minutes_since_sentiment"] = _sentiment_cache["minutes_since_sentiment"]
+        import pandas as pd
+        buf_df = pd.DataFrame(list(_ohlc_buffer))
 
-        feature_matrix = infer_rows[FEATURE_COLS].values
-        t0 = time.time()
-        scaled_features = scaler.transform(feature_matrix)
-        predictions     = xgb_model.predict(scaled_features)
-        inference_latency_ms = int((time.time() - t0) * 1000)
+        buf_df["rolling_vol_5m"]    = buf_df["close"].pct_change().rolling(5).std()
+        buf_df["price_range_ratio"] = (buf_df["high"] - buf_df["low"]) / buf_df["close"].replace(0, float("nan"))
+        buf_df["vol_ratio"]         = buf_df["volume"] / buf_df["volume"].rolling(10).mean()
 
-        infer_rows["predicted_vol_5m"]    = predictions
-        infer_rows["model_version"]       = model_version
-        infer_rows["inference_latency_ms"] = inference_latency_ms
+        new_mask = buf_df["window_start"].isin(rows["window_start"].values)
+        infer_rows = buf_df[new_mask & buf_df["rolling_vol_5m"].notna()].copy()
+
         inference_rows_count = len(infer_rows)
-        infer_model_version  = model_version
 
-        logger.info(
-            "Batch %d: %d prediksi (latency=%dms, model=%s)",
-            batch_id, inference_rows_count, inference_latency_ms, model_version,
-        )
+        if not infer_rows.empty and xgb_model is not None and scaler is not None:
+            infer_rows["compound_score"]          = _sentiment_cache["compound_score"]
+            infer_rows["positive_ratio"]          = _sentiment_cache["positive_ratio"]
+            infer_rows["tweet_count"]             = _sentiment_cache["tweet_count"]
+            infer_rows["minutes_since_sentiment"] = _sentiment_cache["minutes_since_sentiment"]
 
-        pred_cols = [
-            "window_start", "predicted_vol_5m", "rolling_vol_5m", "price_range_ratio",
-            "vol_ratio", "compound_score", "minutes_since_sentiment",
-            "model_version", "inference_latency_ms",
-        ]
-        try:
-            pred_conn = _pg_conn(PGBOUNCER_HOST, PGBOUNCER_PORT)
+            feature_matrix = infer_rows[FEATURE_COLS].values
+            t0 = time.time()
+            scaled_features = scaler.transform(feature_matrix)
+            predictions     = xgb_model.predict(scaled_features)
+            inference_latency_ms = int((time.time() - t0) * 1000)
 
-            @pg_breaker
-            def _write_preds(c):
-                write_predictions(infer_rows[pred_cols], c)
+            infer_rows["predicted_vol_5m"]     = predictions
+            infer_rows["model_version"]        = model_version
+            infer_rows["inference_latency_ms"]  = inference_latency_ms
+            infer_model_version  = model_version
 
-            _write_preds(pred_conn)
-            pred_conn.close()
-        except pybreaker.CircuitBreakerError:
-            logger.warning("Batch %d: circuit breaker OPEN — skip write_predictions.", batch_id)
-        except Exception as e:
-            logger.warning("Batch %d: gagal write_predictions: %s", batch_id, e)
+            logger.info(
+                "Batch %d: %d prediksi (latency=%dms, model=%s)",
+                batch_id, inference_rows_count, inference_latency_ms, model_version,
+            )
+
+            pred_cols = [
+                "window_start", "predicted_vol_5m", "rolling_vol_5m", "price_range_ratio",
+                "vol_ratio", "compound_score", "minutes_since_sentiment",
+                "model_version", "inference_latency_ms",
+            ]
+            try:
+                pred_conn = _pg_conn(PGBOUNCER_HOST, PGBOUNCER_PORT)
+
+                @pg_breaker
+                def _write_preds(c):
+                    write_predictions(infer_rows[pred_cols], c)
+
+                _write_preds(pred_conn)
+                pred_conn.close()
+            except pybreaker.CircuitBreakerError:
+                logger.warning("Batch %d: circuit breaker OPEN — skip write_predictions.", batch_id)
+            except Exception as e:
+                logger.warning("Batch %d: gagal write_predictions: %s", batch_id, e)
 
     # ── Log pipeline_lineage ──────────────────────────────────
     try:
@@ -553,6 +613,7 @@ def write_batch(batch_df, batch_id: int, xgb_model=None, scaler=None, model_vers
 def main():
     logger.info("Memulai Spark Structured Streaming job...")
     load_model_and_scaler()
+    start_model_refresh_thread()
 
     start_sentiment_cache_thread()
 

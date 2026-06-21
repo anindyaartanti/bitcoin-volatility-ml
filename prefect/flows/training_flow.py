@@ -298,16 +298,16 @@ def log_to_mlflow(model_tuple) -> dict:
 
     if mae < MAE_THRESHOLD:
         client = MlflowClient(tracking_uri=MLFLOW_URI)
-        latest = client.get_latest_versions(MODEL_NAME, stages=["None"])
-        if latest:
-            client.transition_model_version_stage(
+        versions = client.search_model_versions(f"name='{MODEL_NAME}'")
+        if versions:
+            latest = max(versions, key=lambda v: int(v.version))
+            client.set_registered_model_alias(
                 name=MODEL_NAME,
-                version=latest[0].version,
-                stage="Production",
-                archive_existing_versions=True,
+                alias="production",
+                version=latest.version,
             )
             promoted = True
-            log.info("Model v%s dipromosikan ke Production (MAE=%.6f)", latest[0].version, mae)
+            log.info("Model v%s dipromosikan ke Production (MAE=%.6f)", latest.version, mae)
     else:
         msg = (
             f"⚠️ Model training selesai tapi MAE={mae:.6f} melebihi "
@@ -372,15 +372,15 @@ def deploy() -> None:
     """Dipanggil oleh deploy_all.py untuk mendaftarkan deployment ke Prefect."""
     Deployment.build_from_flow(
         flow=training_flow,
-        name="model-training-weekly",
+        name="model-training-daily",
         work_pool_name="default",
         schedules=[MinimalDeploymentSchedule(
-            schedule=CronSchedule(cron="0 2 * * 1")
+            schedule=CronSchedule(cron="0 23 * * *")
         )],
         apply=True,
     )
-    print("Deployment 'model-training-weekly' created.")
+    print("Deployment 'model-training-daily' created.")
 
 
 if __name__ == "__main__":
-    training_flow.serve(name="model-training-weekly", cron="0 2 * * 1")
+    training_flow.serve(name="model-training-daily", cron="0 23 * * *")
