@@ -1,0 +1,21 @@
+# Force LF line endings for shell scripts (prevent "not found" errors in Docker)
+*.sh text eol=lf
+
+# Binary files — no conversion
+*.png binary
+*.jpg binary
+*.ico binary
+*.crt binary
+*.key binary
+
+# Keep as-is
+*.py text
+*.yml text
+*.yaml text
+*.json text
+*.sql text
+*.md text
+*.txt text
+*.cfg text
+*.ini text
+*.toml text
