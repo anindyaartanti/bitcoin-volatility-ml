@@ -24,6 +24,7 @@ import numpy as np
 import pybreaker
 import requests
 from confluent_kafka import Producer
+from cryptography.fernet import Fernet
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
@@ -65,6 +66,25 @@ MLFLOW_URI      = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
 XGB_CACHE_PATH  = "/tmp/xgb_model_cache"
 TELEGRAM_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT   = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# ─── Encryption (Kafka in-transit) ──────────────────────────────
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
+
+
+@F.udf(StringType())
+def decrypt_udf(encrypted_bytes):
+    """Decrypt Kafka message value encrypted with Fernet (AES-128-CBC + HMAC)."""
+    if encrypted_bytes is None:
+        return None
+    if not ENCRYPTION_KEY:
+        return encrypted_bytes.decode("utf-8", errors="replace")
+    try:
+        return Fernet(ENCRYPTION_KEY.encode()).decrypt(
+            bytes(encrypted_bytes)
+        ).decode("utf-8")
+    except Exception:
+        return encrypted_bytes.decode("utf-8", errors="replace")
+
 
 FEATURE_COLS = [
     "rolling_vol_5m", "price_range_ratio", "vol_ratio",
@@ -428,7 +448,7 @@ def build_stream(spark: SparkSession):
 
     parsed = (
         raw.select(
-            F.from_json(F.col("value").cast("string"), TRADE_SCHEMA).alias("d")
+            F.from_json(decrypt_udf(F.col("value")), TRADE_SCHEMA).alias("d")
         )
         .select(
             # event_time: ms epoch → TimestampType

@@ -492,6 +492,7 @@ services:
       KAFKA_DLQ_TOPIC: btc_ticker_dlq
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
     command: ["python", "binance_producer.py"]
     depends_on:
       kafka:
@@ -535,6 +536,8 @@ services:
       # Telegram
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      # Encryption
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
     volumes:
       - ./processing:/opt/spark/jobs
     entrypoint: ["/bin/bash", "/opt/spark/jobs/entrypoint.sh"]
