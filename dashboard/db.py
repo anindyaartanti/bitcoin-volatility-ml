@@ -1,7 +1,10 @@
+import warnings
 import pandas as pd
 from typing import Optional
 import streamlit as st
 from config import PG_HOST, PG_PORT, PG_DB, PG_USER, PG_PASSWORD, TRINO_HOST, TRINO_PORT, TRINO_USER
+
+warnings.filterwarnings("ignore", message="pandas only supports SQLAlchemy connectable")
 
 
 # ─── PostgreSQL (langsung, untuk data real-time/sederhana) ────

@@ -15,6 +15,7 @@ import time
 
 import requests
 import websocket
+from cryptography.fernet import Fernet
 from kafka import KafkaProducer
 from kafka.errors import KafkaError
 
@@ -32,6 +33,10 @@ TELEGRAM_CHAT_ID        = os.getenv("TELEGRAM_CHAT_ID", "")
 BINANCE_HOST            = "stream.binance.com"
 BINANCE_WS_PATH         = "/ws/btcusdt@trade"
 MAX_RETRIES             = 5
+
+# ─── Encryption (Kafka in-transit) ─────────────────────────────
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
+_cipher = Fernet(ENCRYPTION_KEY.encode()) if ENCRYPTION_KEY else None
 
 # DNS-over-HTTPS resolver untuk bypass DNS hijacking (ISP Indonesia)
 DOH_URL = "https://dns.google/resolve"
@@ -72,7 +77,7 @@ def send_telegram(message: str):
 def create_producer() -> KafkaProducer:
     return KafkaProducer(
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+        value_serializer=lambda v: v if isinstance(v, (bytes, bytearray)) else json.dumps(v).encode("utf-8"),
         acks="all",
         retries=3,
         max_block_ms=10_000,
@@ -95,7 +100,11 @@ def on_message(ws, message: str):
             "quantity":   data["q"],
             "is_buyer_mm": data.get("m", False),
         }
-        producer.send(KAFKA_TOPIC, value=payload)
+        if _cipher:
+            encrypted = _cipher.encrypt(json.dumps(payload).encode("utf-8"))
+            producer.send(KAFKA_TOPIC, value=encrypted)
+        else:
+            producer.send(KAFKA_TOPIC, value=payload)
     except (json.JSONDecodeError, ValueError, KeyError) as e:
         logger.warning("Malformed message → DLQ: %s", e)
         try:
