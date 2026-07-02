@@ -28,6 +28,9 @@ from prefect.deployments import Deployment
 from prefect.client.schemas.schedules import CronSchedule
 from prefect.client.schemas.objects import MinimalDeploymentSchedule
 from prefect.logging import get_run_logger
+from openlineage.client import OpenLineageClient
+from openlineage.client.event_v2 import Dataset, Job, Run, RunEvent, RunState, OutputDataset
+from openlineage.client.uuid import generate_new_uuid
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
@@ -361,10 +364,39 @@ def record_lineage(metrics: dict, mlflow_result: dict, n_rows: int) -> None:
 # ─── Main Flow ────────────────────────────────────────────────
 @flow(name="model-training", log_prints=True)
 def training_flow() -> None:
-    df = extract_features()
-    model_tuple = train_model(df)
-    mlflow_result = log_to_mlflow(model_tuple)
-    record_lineage(model_tuple[2], mlflow_result, len(df))
+    import uuid as _uuid
+    ol_run_id = str(_uuid.uuid4())
+    ol_job = Job(namespace="bitcoin-volatility-ml", name="model-training")
+    ol_run = Run(runId=ol_run_id)
+    ol_input = Dataset(namespace="bitcoin-volatility-ml", name="postgresql.public.v_ml_features")
+    ol_output = Dataset(namespace="bitcoin-volatility-ml", name="mlflow://btc_volatility_xgb")
+    ol_client = OpenLineageClient.from_environment()
+
+    ol_client.emit(RunEvent(
+        eventType=RunState.START,
+        eventTime=datetime.now(timezone.utc).isoformat(),
+        run=ol_run, job=ol_job, producer="prefect-model-training/1.0",
+    ))
+
+    try:
+        df = extract_features()
+        model_tuple = train_model(df)
+        mlflow_result = log_to_mlflow(model_tuple)
+        record_lineage(model_tuple[2], mlflow_result, len(df))
+        ol_client.emit(RunEvent(
+            eventType=RunState.COMPLETE,
+            eventTime=datetime.now(timezone.utc).isoformat(),
+            run=ol_run, job=ol_job, producer="prefect-model-training/1.0",
+            inputs=[ol_input],
+            outputs=[ol_output],
+        ))
+    except Exception:
+        ol_client.emit(RunEvent(
+            eventType=RunState.FAIL,
+            eventTime=datetime.now(timezone.utc).isoformat(),
+            run=ol_run, job=ol_job, producer="prefect-model-training/1.0",
+        ))
+        raise
 
 
 # ─── Deployment helpers ───────────────────────────────────────

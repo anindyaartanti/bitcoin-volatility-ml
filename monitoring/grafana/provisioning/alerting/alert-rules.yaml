@@ -111,3 +111,144 @@ groups:
           description: "Tidak ada data OHLC baru. Periksa binance-producer dan spark-streaming-job."
         labels:
           severity: critical
+
+  - name: System Health
+    folder: System Health
+    interval: 30s
+    rules:
+      - uid: host_memory_high
+        title: "[SYSTEM] Host Memory > 85%"
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: btcdb-postgres
+            model:
+              format: table
+              rawSql: |
+                SELECT used_percent
+                FROM mem
+                ORDER BY time DESC LIMIT 1
+              refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+        evaluations:
+          - condition: "A > 85"
+        noDataState: NoData
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: "[SYSTEM] Host memory > 85%"
+          description: "RAM hampir penuh. Risiko OOM. Periksa container yang boros memory."
+        labels:
+          severity: critical
+
+      - uid: host_disk_high
+        title: "[SYSTEM] Host Disk > 90%"
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: btcdb-postgres
+            model:
+              format: table
+              rawSql: |
+                SELECT MAX(used_percent) AS used_pct
+                FROM disk
+                WHERE time > NOW() - INTERVAL '5 minutes'
+                  AND path NOT LIKE '/var/lib/docker/%'
+              refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+        evaluations:
+          - condition: "A > 90"
+        noDataState: NoData
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "[SYSTEM] Host disk > 90%"
+          description: "Disk host hampir penuh. Bersihkan Docker volumes atau log files."
+        labels:
+          severity: critical
+
+      - uid: host_cpu_high
+        title: "[SYSTEM] Host CPU > 90% (sustained)"
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: btcdb-postgres
+            model:
+              format: table
+              rawSql: |
+                SELECT 100 - AVG(usage_idle) AS cpu_pct
+                FROM cpu
+                WHERE time > NOW() - INTERVAL '5 minutes'
+              refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+        evaluations:
+          - condition: "A > 90"
+        noDataState: NoData
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "[SYSTEM] Host CPU sustained > 90%"
+          description: "CPU tinggi selama 5+ menit. Kemungkinan Spark job overload."
+        labels:
+          severity: warning
+
+      - uid: container_telegraf_stale
+        title: "[SYSTEM] Telegraf / Docker Engine Not Reporting"
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: btcdb-postgres
+            model:
+              format: table
+              rawSql: |
+                SELECT COUNT(*) AS cnt
+                FROM docker_container_status
+                WHERE time > NOW() - INTERVAL '2 minutes'
+              refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+        evaluations:
+          - condition: "A == 0"
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 3m
+        annotations:
+          summary: "[SYSTEM] Telegraf atau Docker Engine tidak merespons"
+          description: "Tidak ada data container status dalam 2 menit. Cek Docker daemon dan container telegraf."
+        labels:
+          severity: critical
+
+      - uid: container_failed
+        title: "[SYSTEM] Container Exited (Non-Zero)"
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: btcdb-postgres
+            model:
+              format: table
+              rawSql: |
+                SELECT COUNT(*) AS cnt
+                FROM docker_container_status
+                WHERE time > NOW() - INTERVAL '5 minutes'
+                  AND status = 'exited'
+              refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+        evaluations:
+          - condition: "A > 0"
+        noDataState: NoData
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: "[SYSTEM] Ada container yang exited"
+          description: "{{ $values.A.Value }} container dalam status exited. Cek docker compose ps."
+        labels:
+          severity: warning

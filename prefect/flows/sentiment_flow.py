@@ -22,6 +22,9 @@ import pybreaker
 import requests
 from prefect import flow, task
 from prefect.client.schemas.schedules import IntervalSchedule
+from openlineage.client import OpenLineageClient
+from openlineage.client.event_v2 import Dataset, Job, Run, RunEvent, RunState, OutputDataset
+from openlineage.client.uuid import generate_new_uuid
 
 logger = logging.getLogger("sentiment_flow")
 
@@ -345,16 +348,40 @@ def _handle_failure(run_id: str, window_start: datetime, error: str):
 def sentiment_pipeline():
     import uuid
     now = datetime.now(tz=timezone.utc)
-    # Round down ke 30 menit terdekat
     window_start = now.replace(
         minute=(now.minute // 30) * 30, second=0, microsecond=0
     )
     run_id = str(uuid.uuid4())
 
+    # ── OpenLineage ──────────────────────────────────────────
+    ol_job = Job(namespace="bitcoin-volatility-ml", name="sentiment_pipeline")
+    ol_run = Run(runId=run_id)
+    ol_input = Dataset(namespace="bitcoin-volatility-ml", name="minio://twitter-raw/tweets")
+    ol_output = Dataset(namespace="bitcoin-volatility-ml", name="postgresql.public.sentiment_30m")
+    ol_client = OpenLineageClient.from_environment()
+
+    ol_client.emit(RunEvent(
+        eventType=RunState.START,
+        eventTime=datetime.now(timezone.utc).isoformat(),
+        run=ol_run, job=ol_job, producer="prefect-sentiment-pipeline/1.0",
+    ))
+
     try:
         parquet_path = harvest_tweets(window_start, run_id)
         score_and_store(parquet_path, window_start, run_id)
+        ol_client.emit(RunEvent(
+            eventType=RunState.COMPLETE,
+            eventTime=datetime.now(timezone.utc).isoformat(),
+            run=ol_run, job=ol_job, producer="prefect-sentiment-pipeline/1.0",
+            inputs=[ol_input],
+            outputs=[ol_output],
+        ))
     except Exception as e:
+        ol_client.emit(RunEvent(
+            eventType=RunState.FAIL,
+            eventTime=datetime.now(timezone.utc).isoformat(),
+            run=ol_run, job=ol_job, producer="prefect-sentiment-pipeline/1.0",
+        ))
         _handle_failure(run_id, window_start, str(e))
         raise
 

@@ -410,6 +410,13 @@ def create_spark_session() -> SparkSession:
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
         .config("spark.streaming.stopGracefullyOnShutdown",   "true")
         .config("spark.sql.session.timeZone",                 "UTC")
+        # OpenLineage → Marquez
+        .config("spark.extraListeners",
+                "io.openlineage.spark.agent.OpenLineageSparkListener")
+        .config("spark.openlineage.transport.type", "http")
+        .config("spark.openlineage.transport.url",
+                "http://marquez-api:5000")
+        .config("spark.openlineage.namespace", "bitcoin-volatility-ml")
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
