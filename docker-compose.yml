@@ -238,8 +238,14 @@ services:
       start_period: 20s
 
   spark-worker:
-    <<: *spark-common
+    build:
+      context: ./processing
+      dockerfile: Dockerfile
+    image: bitcoin-volatility-ml-spark-worker:latest
     container_name: spark-worker
+    user: root
+    networks:
+      - bigdata_net
     environment:
       <<: *spark-common-env
       SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-2g}
@@ -337,6 +343,12 @@ services:
       - ./trino/config.properties:/etc/trino/config.properties:ro
       - ./trino/catalog/postgresql.properties:/etc/trino/catalog/postgresql.properties:ro
       - ./trino/catalog/hive.properties:/etc/trino/catalog/hive.properties:ro
+    environment:
+      TRINO_PG_HOST: ${TRINO_PG_HOST}
+      TRINO_PG_PORT: ${TRINO_PG_PORT}
+      TRINO_PG_DB: ${TRINO_PG_DB}
+      TRINO_PG_USER: ${TRINO_PG_USER}
+      TRINO_PG_PASSWORD: ${TRINO_PG_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy

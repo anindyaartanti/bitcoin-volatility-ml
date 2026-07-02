@@ -20,7 +20,7 @@ st.markdown("""
 <style>
     .block-container { padding-top: 1.5rem; padding-bottom: 1rem; }
     .stAppHeader { display: none; }
-    .stApp { background-color: #0e1117; }
+    .stApp { background-color: #0f131b; }
     h1, h2, h3 { color: #f0f2f6 !important; font-weight: 600; }
     h1 { font-size: 1.6rem !important; margin-bottom: 0.5rem !important; }
     h2 { font-size: 1.2rem !important; }
@@ -51,7 +51,7 @@ st.markdown("""
 # ─── Theme helper ──────────────────────────────────────────────
 def _apply_theme(fig, x_title=None, y_title=None, legend=True, height=280, hover="x unified"):
     fig.update_layout(
-        paper_bgcolor="#0e1117", plot_bgcolor="#0e1117",
+        paper_bgcolor="#0f131b", plot_bgcolor="#0f131b",
         font_color="#9ba3af", font_size=11,
         margin=dict(l=10, r=10, t=10, b=10),
         xaxis=dict(showgrid=False, title=dict(text=x_title or "", font_size=10)),
@@ -70,7 +70,7 @@ with st.sidebar:
 
     page = st.radio(
         "Menu",
-        ["Summary", "Market Overview", "Volatility Analytics", "Sentiment Analytics", "Pipeline Operations", "Operations"],
+        ["Market Overview", "Volatility Analytics", "Sentiment Analytics", "Operations"],
         label_visibility="collapsed",
     )
 
@@ -190,7 +190,7 @@ def page_summary():
             fig.add_trace(go.Indicator(mode="gauge+number", value=cpu.get("usage_total", 0),
                 title={"text": "CPU %"}, gauge={"axis": {"range": [0, 100]}, "bar": {"color": "#f7931a"}},
                 number={"font": {"color": "#f0f2f6"}}))
-            fig.update_layout(paper_bgcolor="#0e1117", font_color="#9ba3af", height=220, margin=dict(l=20, r=20, t=40, b=10))
+            fig.update_layout(paper_bgcolor="#0f131b", font_color="#9ba3af", height=220, margin=dict(l=20, r=20, t=40, b=10))
             st.plotly_chart(fig, use_container_width=True, key="summary_cpu")
         else:
             st.info("CPU data belum tersedia")
@@ -678,9 +678,9 @@ def page_cross_source():
                 textinfo="label+percent",
             ))
             fig.update_layout(
-                paper_bgcolor="#0e1117", font_color="#9ba3af", font_size=11,
+                paper_bgcolor="#0f131b", font_color="#9ba3af", font_size=11,
                 margin=dict(l=10, r=10, t=10, b=10),
-                showlegend=False,
+                legend=dict(orientation="h", y=-0.1, font_size=10),
             )
             st.plotly_chart(fig, use_container_width=True, key="sent_donut")
         else:
@@ -875,7 +875,7 @@ def page_lineage():
                 textinfo="label+percent",
             ))
             fig.update_layout(
-                paper_bgcolor="#0e1117", font_color="#9ba3af", font_size=11,
+                paper_bgcolor="#0f131b", font_color="#9ba3af", font_size=11,
                 margin=dict(l=10, r=10, t=10, b=10), showlegend=False,
             )
             st.plotly_chart(fig, use_container_width=True, key="pipe_donut")
@@ -938,7 +938,7 @@ def page_lineage():
                     textinfo="label+percent",
                 ))
                 fig.update_layout(
-                    paper_bgcolor="#0e1117", font_color="#9ba3af", font_size=11,
+                    paper_bgcolor="#0f131b", font_color="#9ba3af", font_size=11,
                     margin=dict(l=10, r=10, t=10, b=10),
                     legend=dict(orientation="h", y=-0.15, font_size=10),
                 )
@@ -1122,7 +1122,7 @@ def _tab_system_health():
                 },
                 number={"font": {"color": "#f0f2f6"}},
             ))
-            fig.update_layout(paper_bgcolor="#0e1117", font_color="#9ba3af", height=200, margin=dict(l=10, r=10, t=30, b=10))
+            fig.update_layout(paper_bgcolor="#0f131b", font_color="#9ba3af", height=200, margin=dict(l=10, r=10, t=30, b=10))
             gc1.plotly_chart(fig, use_container_width=True, key="cpu_gauge")
         if mem_pct is not None:
             fig = go.Figure()
@@ -1141,7 +1141,7 @@ def _tab_system_health():
                 },
                 number={"font": {"color": "#f0f2f6"}},
             ))
-            fig.update_layout(paper_bgcolor="#0e1117", font_color="#9ba3af", height=200, margin=dict(l=10, r=10, t=30, b=10))
+            fig.update_layout(paper_bgcolor="#0f131b", font_color="#9ba3af", height=200, margin=dict(l=10, r=10, t=30, b=10))
             gc2.plotly_chart(fig, use_container_width=True, key="mem_gauge")
         if disk_pct is not None:
             fig = go.Figure()
@@ -1160,7 +1160,7 @@ def _tab_system_health():
                 },
                 number={"font": {"color": "#f0f2f6"}},
             ))
-            fig.update_layout(paper_bgcolor="#0e1117", font_color="#9ba3af", height=200, margin=dict(l=10, r=10, t=30, b=10))
+            fig.update_layout(paper_bgcolor="#0f131b", font_color="#9ba3af", height=200, margin=dict(l=10, r=10, t=30, b=10))
             gc3.plotly_chart(fig, use_container_width=True, key="disk_gauge")
 
     # ── Row 4: Container resource trends ──────────────────────
@@ -1258,7 +1258,7 @@ def _tab_data_quality():
                 labels={"x": "Column", "y": "Table", "color": "Null %"},
             )
             fig.update_layout(
-                paper_bgcolor="#0e1117", font_color="#9ba3af", font_size=10,
+                paper_bgcolor="#0f131b", font_color="#9ba3af", font_size=10,
                 margin=dict(l=10, r=10, t=10, b=10),
                 coloraxis_showscale=False,
             )
@@ -1346,7 +1346,7 @@ def _tab_data_quality():
                     textinfo="label+value",
                 ))
                 fig.update_layout(
-                    paper_bgcolor="#0e1117", font_color="#9ba3af", font_size=11,
+                    paper_bgcolor="#0f131b", font_color="#9ba3af", font_size=11,
                     margin=dict(l=10, r=10, t=10, b=10), showlegend=False,
                 )
                 st.plotly_chart(fig, use_container_width=True, key="dq_donut")
@@ -1384,7 +1384,7 @@ def _tab_data_catalog():
                       label=node_list, color="#f7931a"),
             link=dict(source=source_idx, target=target_idx, value=values, color=colors),
         ))
-        fig.update_layout(paper_bgcolor="#0e1117", font_color="#9ba3af", font_size=10,
+        fig.update_layout(paper_bgcolor="#0f131b", font_color="#9ba3af", font_size=10,
                           margin=dict(l=10, r=10, t=10, b=10), height=420)
         st.plotly_chart(fig, use_container_width=True, key="lineage_sankey_top")
     else:
@@ -1523,7 +1523,7 @@ def _tab_logs():
                 marker_colors=[colors.get(l, "#5b616e") for l in level_counts["level"]],
                 textinfo="label+percent",
             ))
-            fig.update_layout(paper_bgcolor="#0e1117", font_color="#9ba3af", font_size=11,
+            fig.update_layout(paper_bgcolor="#0f131b", font_color="#9ba3af", font_size=11,
                               margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
             st.plotly_chart(fig, use_container_width=True, key="log_donut")
 
@@ -1561,11 +1561,9 @@ def _tab_logs():
 
 # ─── Routing ─────────────────────────────────────────────────
 pages = {
-    "Summary": page_summary,
     "Market Overview": page_overview,
     "Volatility Analytics": page_model,
     "Sentiment Analytics": page_cross_source,
-    "Pipeline Operations": page_lineage,
     "Operations": page_operations,
 }
 pages[page]()

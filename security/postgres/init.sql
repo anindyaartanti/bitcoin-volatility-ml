@@ -489,6 +489,13 @@ CREATE INDEX IF NOT EXISTS idx_logs_svc ON app_logs (service, level);
 
 GRANT SELECT ON btc_ohlc_1m, sentiment_30m, volatility_pred, btc_predictions, pipeline_lineage, audit_log, data_quality_stats, table_metadata, business_glossary, column_lineage, model_performance, app_logs TO dashboard_reader;
 
+-- ─── Grant kelompok4_ipbd (full write access untuk pipeline & Trino) ────
+GRANT USAGE ON SCHEMA public TO kelompok4_ipbd;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO kelompok4_ipbd;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO kelompok4_ipbd;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO kelompok4_ipbd;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO kelompok4_ipbd;
+
 -- ─── Grant marquez db owner untuk Flyway DDL ─────────────────
 -- (dijalankan di create_multiple_db.sh, diulangi di sini untuk safety)
 DO $$
