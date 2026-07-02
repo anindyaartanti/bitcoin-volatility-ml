@@ -1,10 +1,10 @@
 # Bitcoin Volatility ML
 
-End-to-end ML pipeline for real-time Bitcoin volatility prediction, combining Binance market data with Twitter sentiment analysis. Built with Kafka, Spark Structured Streaming, XGBoost, and a federated query layer via Trino.
+Pipeline ML end-to-end untuk prediksi volatilitas Bitcoin secara real-time, menggabungkan data pasar Binance dengan analisis sentimen Twitter. Dibangun dengan Kafka, Spark Structured Streaming, XGBoost, dan lapisan query terfederasi via Trino.
 
 ---
 
-## Architecture
+## Arsitektur
 
 ```
 Binance WebSocket @trade
@@ -33,15 +33,15 @@ Streaming            │
   Monitoring & Orchestration
   ════════════════════════════════
   Grafana ─── Telegram Alerts
-  Prefect ─── Flow orchestration
-  MLflow ──── Model registry
+  Prefect ─── Orchestrasi flow
+  MLflow ──── Registry model
   Marquez ─── Data lineage
-  Telegraf ── System metrics
+  Telegraf ── Metrik sistem
 ```
 
 ## Tech Stack
 
-| Category | Technology |
+| Kategori | Teknologi |
 |---|---|
 | **Ingestion** | Binance WebSocket, Kafka, Confluent Schema Registry |
 | **Stream Processing** | Apache Spark 3.5.1 (Structured Streaming) |
@@ -55,64 +55,64 @@ Streaming            │
 | **Monitoring** | Grafana, Telegraf, Telegram Bot |
 | **Governance** | Marquez (lineage), Great Expectations |
 | **Security** | Nginx (HTTPS + Basic Auth), Fernet encryption |
-| **Metastore** | Hive Metastore (Parquet schema) |
-| **Language** | Python 3.11, PySpark |
+| **Metastore** | Hive Metastore (skema Parquet) |
+| **Bahasa** | Python 3.11, PySpark |
 | **Container** | Docker, Docker Compose |
 
 ---
 
-## Repository Structure
+## Struktur Repository
 
 ```
 .
-├── dashboard/                    # Streamlit dashboard (6 pages)
+├── dashboard/                    # Streamlit dashboard (6 halaman)
 │   ├── app.py                    # Main app — Market Overview, Volatility,
 │   │                             #   Sentiment, Cross-Source, Lineage, Operations
-│   ├── config.py                 # DB & Trino connection config
-│   ├── db.py                     # query_pg() & query_trino() helpers
-│   ├── data_catalog.py           # Data Catalog tab (metadata, glossary)
-│   ├── data_quality.py           # Data Quality tab (profiling stats)
-│   ├── log_explorer.py           # Log Explorer tab (app_logs)
-│   ├── ml_observability.py       # ML Observability tab (model perf)
-│   ├── system_monitor.py         # System Monitor tab (containers, resources)
+│   ├── config.py                 # Config koneksi DB & Trino
+│   ├── db.py                     # Helper query_pg() & query_trino()
+│   ├── data_catalog.py           # Tab Data Catalog (metadata, glossary)
+│   ├── data_quality.py           # Tab Data Quality (profiling stats)
+│   ├── log_explorer.py           # Tab Log Explorer (app_logs)
+│   ├── ml_observability.py       # Tab ML Observability (performa model)
+│   ├── system_monitor.py         # Tab System Monitor (container, resource)
 │   ├── Dockerfile
 │   └── requirements.txt
 │
-├── ingestion/                    # Real-time data ingestion
-│   ├── binance_producer.py       # Binance @trade → Kafka (w/ encryption)
+├── ingestion/                    # Ingestion data real-time
+│   ├── binance_producer.py       # Binance @trade → Kafka (dengan enkripsi)
 │   ├── Dockerfile.producer
 │   └── requirements.producer.txt
 │
 ├── processing/                   # Spark Structured Streaming
 │   ├── stream_processor.py       # Kafka → tumbling window 1m → OHLC + inference
-│   ├── config.py                 # Spark & connection config
-│   ├── Dockerfile                # Spark worker image
+│   ├── config.py                 # Config Spark & koneksi
+│   ├── Dockerfile                # Image Spark worker
 │   └── entrypoint.sh
 │
-├── prefect/                      # Workflow orchestration
+├── prefect/                      # Orchestrasi workflow
 │   └── flows/
 │       ├── sentiment_flow.py     # Twitter scrape → FinVADER → PG (30min)
-│       ├── training_flow.py      # Feature engineering → XGBoost → MLflow (daily)
-│       ├── system_health_check.py # Container & host health (60s)
-│       ├── data_quality_check.py # Great Expectations + profiling (hourly)
-│       ├── model_performance_check.py # RMSE/MAE degradation check (hourly)
-│       ├── log_ingester.py       # Log aggregation (5min)
-│       └── deploy_all.py         # Register all deployments
+│       ├── training_flow.py      # Feature engineering → XGBoost → MLflow (harian)
+│       ├── system_health_check.py # Kesehatan container & host (60s)
+│       ├── data_quality_check.py # Great Expectations + profiling (per jam)
+│       ├── model_performance_check.py # Cek degradasi RMSE/MAE (per jam)
+│       ├── log_ingester.py       # Agregasi log (5min)
+│       └── deploy_all.py         # Daftarkan semua deployment
 │
-├── ml/                           # ML training artifacts
-│   ├── train_model.py            # Standalone training script
-│   ├── model_loader.py           # Model cache loader (Spark-side)
-│   ├── prepare_data.py           # Feature preparation
+├── ml/                           # Artifak training ML
+│   ├── train_model.py            # Script training standalone
+│   ├── model_loader.py           # Loader cache model (Spark-side)
+│   ├── prepare_data.py           # Persiapan fitur
 │   └── mlflow/
-│       └── Dockerfile            # MLflow server image
+│       └── Dockerfile            # Image server MLflow
 │
-├── governance/                   # Data governance
+├── governance/                   # Tata kelola data
 │   ├── audit_trail.sql           # (placeholder)
 │   └── great_expectations/
 │       ├── great_expectations.yml
-│       └── expectations/         # GE suites for OHLC, sentiment, predictions
+│       └── expectations/         # Suite GE untuk OHLC, sentiment, prediksi
 │
-├── trino/                        # Trino (federated query engine)
+├── trino/                        # Trino (query engine federated)
 │   ├── config.properties
 │   ├── init-schema.sh
 │   ├── catalog/
@@ -121,16 +121,16 @@ Streaming            │
 │   └── ddl/
 │       └── register_twitter_raw.sql
 │
-├── security/                     # Security & access control
+├── security/                     # Keamanan & kontrol akses
 │   ├── nginx/
 │   │   ├── Dockerfile            # Reverse proxy (HTTPS + Basic Auth)
 │   │   ├── nginx.conf
 │   │   ├── entrypoint.sh
-│   │   ├── .htpasswd             # (empty, gitignored)
+│   │   ├── .htpasswd             # (kosong, gitignored)
 │   │   ├── nginx.crt             # (gitignored)
 │   │   └── nginx.key             # (gitignored)
 │   └── postgres/
-│       ├── init.sql              # Full schema, roles, grants, metadata seed
+│       ├── init.sql              # Schema lengkap, roles, grants, seed metadata
 │       └── create_multiple_db.sh
 │
 ├── hive/                         # Hive Metastore
@@ -148,45 +148,45 @@ Streaming            │
 │   │       └── alerting/
 │   └── telegraf/
 │       ├── Dockerfile
-│       ├── telegraf.conf         # System metrics → PostgreSQL
+│       ├── telegraf.conf         # Metrik sistem → PostgreSQL
 │       └── scripts/
 │           └── docker_status.sh
 │
-├── docker/                       # Docker support
+├── docker/                       # Dukungan Docker
 │   └── hive/
 │       ├── Dockerfile
 │       └── entrypoint.sh
 │
-├── pgbouncer/                    # PostgreSQL connection pooler
+├── pgbouncer/                    # Connection pooler PostgreSQL
 │   ├── pgbouncer.ini
-│   └── userlist.txt              # Contains MD5 password hash
+│   └── userlist.txt              # Berisi hash MD5 password
 │
-├── scripts/                      # Utility scripts
+├── scripts/                      # Script utilitas
 │   ├── check_keys.py
 │   ├── fetch_historical_btc.py
 │   ├── gen_exploration_notebook.py
 │   └── seed_dummy_data.py
 │
 ├── notebooks/
-│   └── exploration.ipynb         # EDA notebook (1.5 MB, output-heavy)
+│   └── exploration.ipynb         # Notebook EDA (1.5 MB)
 │
-├── dokumentasi/                  # Project documentation (Indonesian)
+├── dokumentasi/                  # Dokumentasi proyek (Indonesia)
 │   ├── Design-Dashboard.md
 │   ├── Laporan.md
 │   ├── Requirement Projek.md
 │   ├── Resume-Proyek.md
 │   └── dashboard-spec.md
 │
-├── data/                         # Sample data (empty placeholders)
+├── data/                         # Data sampel (placeholder kosong)
 │   └── sample_reddit.parquet     # 0 bytes
 │
-├── docker-compose.yml            # All services (Laptop 1 / single machine)
+├── docker-compose.yml            # Semua service (Laptop 1 / single machine)
 ├── docker-compose.laptop2.yml    # Dashboard-only (Laptop 2)
-├── .env.example                  # Environment template
-├── .env.laptop2.example          # Laptop 2 env template
-├── pyproject.toml                # UV project config
-├── requirements.txt              # Python dependencies
-├── uv.lock                       # UV lock file
+├── .env.example                  # Template environment
+├── .env.laptop2.example          # Template env Laptop 2
+├── pyproject.toml                # Konfigurasi project UV
+├── requirements.txt              # Dependensi Python
+├── uv.lock                       # Lock file UV
 ├── run_pipeline.sh               # CLI: sentiment | train | deploy
 ├── main.py                       # Entry stub
 ├── .python-version               # Python 3.11
@@ -195,9 +195,9 @@ Streaming            │
 
 ---
 
-## Data Pipeline
+## Pipeline Data
 
-### 1. Real-Time OHLC Ingestion
+### 1. Ingestion OHLC Real-Time
 
 ```
 Binance WebSocket (btcusdt@trade) ──► Kafka (btc_ticker_raw) ──► Spark Streaming
@@ -208,42 +208,42 @@ Binance WebSocket (btcusdt@trade) ──► Kafka (btc_ticker_raw) ──► Spa
                                                                        │
                                                                   XGBoost inference ──► volatility_pred (PG)
                                                                        │
-                                                                  Kafka (volatility_pred topic)
+                                                                  Kafka (topic volatility_pred)
 ```
 
-- **Binance Producer** (`ingestion/binance_producer.py`): Connects to Binance `@trade` stream, encrypts payloads with Fernet, publishes to Kafka. Exponential backoff with 5 retries + Telegram alert on failure. Malformed messages routed to DLQ.
-- **Spark Streaming** (`processing/stream_processor.py`): Reads from Kafka, computes 1-minute tumbling windows (OHLCV + trade_count + volatility), writes to PostgreSQL via PgBouncer with pybreaker circuit breaker. Logs lineage to `pipeline_lineage`.
-- **Real-Time XGBoost Inference**: Model loaded from MLflow Registry (cached at `/tmp/xgb_model_cache`). 7 features (rolling_vol_5m, price_range_ratio, vol_ratio, compound_score, positive_ratio, tweet_count, minutes_since_sentiment) → predicted_vol_5m. Falls back to zero if model unavailable.
+- **Binance Producer** (`ingestion/binance_producer.py`): Terhubung ke stream `@trade` Binance, mengenkripsi payload dengan Fernet, publish ke Kafka. Exponential backoff dengan 5 retry + alert Telegram jika gagal. Pesan malformed dikirim ke DLQ.
+- **Spark Streaming** (`processing/stream_processor.py`): Baca dari Kafka, komputasi tumbling window 1 menit (OHLCV + trade_count + volatility), tulis ke PostgreSQL via PgBouncer dengan pybreaker circuit breaker. Catat lineage ke `pipeline_lineage`.
+- **XGBoost Inference Real-Time**: Model dimuat dari MLflow Registry (dicache di `/tmp/xgb_model_cache`). 7 fitur (rolling_vol_5m, price_range_ratio, vol_ratio, compound_score, positive_ratio, tweet_count, minutes_since_sentiment) → predicted_vol_5m. Fallback ke 0 jika model tidak tersedia.
 
-### 2. Sentiment Analysis
+### 2. Analisis Sentimen
 
 ```
 Twitter/X scrape ──► MinIO (Parquet) ──► FinVADER scoring ──► sentiment_30m (PG)
 ```
 
-- **Prefect Flow** (`prefect/flows/sentiment_flow.py`): Scheduled every 30 minutes. Harvests tweets about Bitcoin, stores raw Parquet in MinIO (`twitter-raw/` bucket), runs FinVADER sentiment scoring, validates with Great Expectations, writes aggregated 30-minute windows to PostgreSQL.
-- **Quality Flags**: `ok` (>5 tweets), `low_sample` (<5), `stale` (forward-filled on failure).
-- **Circuit Breaker**: Pybreaker — stops writes after 5 consecutive failures, auto-resets after 60s.
+- **Prefect Flow** (`prefect/flows/sentiment_flow.py`): Dijadwalkan setiap 30 menit. Mengumpulkan tweet tentang Bitcoin, menyimpan Parquet mentah di MinIO (`twitter-raw/` bucket), menjalankan skoring sentimen FinVADER, validasi dengan Great Expectations, menulis agregasi window 30 menit ke PostgreSQL.
+- **Quality Flags**: `ok` (>5 tweet), `low_sample` (<5), `stale` (forward-filled saat gagal).
+- **Circuit Breaker**: Pybreaker — hentikan write setelah 5 kegagalan berturut-turut, reset otomatis setelah 60 detik.
 
-### 3. ML Training
+### 3. Training ML
 
 ```
 Prefect Flow ──► v_ml_features (PostgreSQL view)
                      │
-              7 features + target_vol_5m
+              7 fitur + target_vol_5m
                      │
                XGBoost Regressor
                TimeSeriesSplit 5-fold
                StandardScaler
                      │
                 MLflow Registry
-                (promote if MAE < 0.0015)
+                (promote jika MAE < 0.0015)
 ```
 
-- **Feature View** (`v_ml_features`): Joins `btc_ohlc_1m` with `sentiment_30m` (forward-filled). Computes rolling_vol_5m, price_range_ratio, vol_ratio, compound_score, positive_ratio, tweet_count, minutes_since_sentiment. Target: `target_vol_5m` (future 5-min volatility).
-- **Training Flow** (`prefect/flows/training_flow.py`): Scheduled daily at 23:00 UTC. Extracts features, trains XGBoost (300 trees, max_depth=4, learning_rate=0.05), evaluates with TimeSeriesSplit 5-fold, logs to MLflow. Auto-promotes to Production if MAE < 0.0015 and better than current champion. Sends Telegram alert on failure.
+- **Feature View** (`v_ml_features`): JOIN `btc_ohlc_1m` dengan `sentiment_30m` (forward-filled). Menghitung rolling_vol_5m, price_range_ratio, vol_ratio, compound_score, positive_ratio, tweet_count, minutes_since_sentiment. Target: `target_vol_5m` (volatilitas 5 menit ke depan).
+- **Training Flow** (`prefect/flows/training_flow.py`): Dijadwalkan setiap hari pukul 23:00 UTC. Ekstrak fitur, train XGBoost (300 trees, max_depth=4, learning_rate=0.05), evaluasi dengan TimeSeriesSplit 5-fold, log ke MLflow. Auto-promote ke Production jika MAE < 0.0015 dan lebih baik dari champion saat ini. Kirim alert Telegram jika gagal.
 
-### 4. Federated Query (Trino)
+### 4. Query Terfederasi (Trino)
 
 ```
 PostgreSQL (btc_ohlc_1m, sentiment_30m, volatility_pred)
@@ -257,90 +257,90 @@ MinIO (tweets Parquet via Hive Metastore)
 Streamlit Dashboard (cross-source analytics)
 ```
 
-- PostgreSQL tables queried directly via `postgresql` catalog.
-- MinIO Parquet files queried via `hive` catalog (Hive Metastore tracks schemas).
-- Enables JOINs across real-time OHLC + sentiment + raw tweets in a single SQL query.
+- Tabel PostgreSQL diquery langsung via katalog `postgresql`.
+- File Parquet di MinIO diquery via katalog `hive` (Hive Metastore melacak skema).
+- Memungkinkan JOIN across data OHLC real-time + sentimen + tweet mentah dalam satu query SQL.
 
-### 5. Prefect Flows (All)
+### 5. Semua Prefect Flows
 
-| Flow | Schedule | Description |
+| Flow | Jadwal | Deskripsi |
 |---|---|---|
-| `sentiment-pipeline` | Every 30 min | Twitter scrape → FinVADER → PostgreSQL |
-| `model-training` | Daily 23:00 UTC | Feature engineering → XGBoost → MLflow |
-| `system-health-check` | Every 60s | Container status, host resources, Telegram alerts |
-| `data-quality-check` | Every 60 min | Great Expectations + profiling → data_quality_stats |
-| `model-performance-check` | Every 60 min | Production RMSE/MAE (6h sliding window), degradation alerts |
-| `log-ingester` | Every 5 min | Aggregate logs → app_logs |
+| `sentiment-pipeline` | Setiap 30 menit | Twitter scrape → FinVADER → PostgreSQL |
+| `model-training` | Harian 23:00 UTC | Feature engineering → XGBoost → MLflow |
+| `system-health-check` | Setiap 60 detik | Status container, resource host, alert Telegram |
+| `data-quality-check` | Setiap 60 menit | Great Expectations + profiling → data_quality_stats |
+| `model-performance-check` | Setiap 60 menit | RMSE/MAE produksi (sliding window 6 jam), alert degradasi |
+| `log-ingester` | Setiap 5 menit | Agregasi log → app_logs |
 
 ---
 
-## Database Schema
+## Skema Database
 
-### Core Tables (PostgreSQL — `btcdb`)
+### Tabel Inti (PostgreSQL — `btcdb`)
 
-| Table | Description | Source |
+| Tabel | Deskripsi | Sumber |
 |---|---|---|
-| `btc_ohlc_1m` | OHLC aggregation per 1-minute window | Spark Streaming (Binance) |
-| `sentiment_30m` | Twitter sentiment scores per 30-minute window | Prefect (FinVADER) |
-| `volatility_pred` | XGBoost real-time predictions with features | Spark Streaming (MLflow model) |
-| `btc_predictions` | Predicted vs actual volatility (daily eval) | Prefect (training flow) |
-| `pipeline_lineage` | Data lineage: every pipeline run (source, target, rows, status) | All pipelines |
-| `audit_log` | Automatic audit trail via INSERT/UPDATE/DELETE triggers | PostgreSQL trigger |
+| `btc_ohlc_1m` | Agregasi OHLC per window 1 menit | Spark Streaming (Binance) |
+| `sentiment_30m` | Skor sentimen Twitter per window 30 menit | Prefect (FinVADER) |
+| `volatility_pred` | Prediksi XGBoost real-time dengan fitur | Spark Streaming (model MLflow) |
+| `btc_predictions` | Prediksi vs aktual volatilitas (evaluasi harian) | Prefect (training flow) |
+| `pipeline_lineage` | Data lineage: setiap run pipeline (source, target, rows, status) | Semua pipeline |
+| `audit_log` | Audit trail otomatis via trigger INSERT/UPDATE/DELETE | Trigger PostgreSQL |
 
-### Governance Tables
+### Tabel Governance
 
-| Table | Description |
+| Tabel | Deskripsi |
 |---|---|
-| `table_metadata` | Central metadata: description, owner, sensitivity, refresh frequency |
-| `business_glossary` | Business terms mapped to technical tables/columns |
-| `column_lineage` | Source → target column mapping with transformations |
-| `data_quality_stats` | Profiling stats: null %, distinct, min/max/mean per column |
-| `model_performance` | Historical RMSE/MAE per model version |
-| `app_logs` | Aggregated logs from all services |
+| `table_metadata` | Metadata terpusat: deskripsi, owner, sensitivity, frekuensi refresh |
+| `business_glossary` | Istilah bisnis yang dipetakan ke tabel/kolom teknis |
+| `column_lineage` | Pemetaan kolom source → target dengan transformasi |
+| `data_quality_stats` | Statistik profiling: null %, distinct, min/max/mean per kolom |
+| `model_performance` | Historical RMSE/MAE per versi model |
+| `app_logs` | Log agregasi dari semua service |
 
-### Key Relationships
+### Relasi Utama
 
 ```
 btc_ohlc_1m.window_start ──┐
                             ├──► v_ml_features (training view)
 sentiment_30m.window_start ─┘
-       │                              ┌──► btc_predictions (daily eval)
+       │                              ┌──► btc_predictions (evaluasi harian)
        └──► volatility_pred ──────────┤
-                            XGBoost    └──► Kafka (real-time pred topic)
+                            XGBoost    └──► Kafka (topic pred real-time)
 ```
 
 ---
 
 ## Dashboard
 
-6-page Streamlit dashboard served behind Nginx (HTTPS + Basic Auth):
+6 halaman Streamlit yang disajikan di belakang Nginx (HTTPS + Basic Auth):
 
-| Page | Description |
+| Halaman | Deskripsi |
 |---|---|
-| **Market Overview** | Live OHLC candlestick chart, latest price, volume, 24h change |
-| **Volatility Analytics** | Predicted vs actual volatility, feature importances, model MAE trend |
-| **Sentiment Analytics** | Compound score timeline, positive/negative ratio, tweet volume |
-| **Cross-Source Analytics** | Trino federated queries: join OHLC + sentiment + raw tweets |
-| **Data Lineage** | pipeline_lineage table, run history with quality status |
-| **Operations** | Data Catalog (metadata, glossary), Data Quality (profiling), System Monitor (containers, CPU/mem/disk), Log Explorer, ML Observability |
+| **Market Overview** | Candlestick chart live, harga terbaru, volume, perubahan 24 jam |
+| **Volatility Analytics** | Prediksi vs aktual volatilitas, feature importances, tren MAE model |
+| **Sentiment Analytics** | Timeline compound score, rasio positif/negatif, volume tweet |
+| **Cross-Source Analytics** | Query Trino federated: JOIN OHLC + sentimen + tweet mentah |
+| **Data Lineage** | Tabel pipeline_lineage, riwayat run dengan status kualitas |
+| **Operations** | Data Catalog (metadata, glossary), Data Quality (profiling), System Monitor (container, CPU/mem/disk), Log Explorer, ML Observability |
 
-Grafana at port 3001 provides additional monitoring with pre-built dashboards and Telegram alerting (4 alert rules).
+Grafana di port 3001 menyediakan monitoring tambahan dengan dashboard bawaan dan alerting Telegram (4 aturan alert).
 
 ---
 
-## Service Reference
+## Referensi Service
 
-| Service | Container | Host Port | Credentials |
+| Service | Container | Host Port | Kredensial |
 |---|---|---|---|
 | Streamlit Dashboard | `dashboard` | `8501:8501` | (via Nginx) |
 | Nginx (HTTPS + Auth) | `nginx` | `8443:443` | `kelompok4_ipbd` / `k4ipbd_nginx_2026` |
 | PostgreSQL | `postgres` | `5434:5432` | `kelompok4_ipbd` / `k4ipbd_postgres_2026` |
-| PgBouncer | `pgbouncer` | `6432:6432` | (pooled PG, same creds) |
+| PgBouncer | `pgbouncer` | `6432:6432` | (pooled PG, kredensial sama) |
 | Trino | `trino` | `8082:8080` | user: `kelompok4_ipbd` |
 | Kafka | `kafka` | `9092:9092` | — |
 | Kafka UI | `kafka-ui` | `8083:8080` | — |
 | MinIO S3 API | `minio` | `9002:9000` | `minioadmin` / `k4ipbd_minio_2026` |
-| MinIO Console | `minio` | `9003:9001` | same |
+| MinIO Console | `minio` | `9003:9001` | sama |
 | Spark Master | `spark-master` | `8081:8080` / `7077:7077` | — |
 | MLflow | `mlflow` | `5001:5000` | — |
 | Prefect Server | `prefect-server` | `4201:4200` | — |
@@ -352,46 +352,46 @@ Grafana at port 3001 provides additional monitoring with pre-built dashboards an
 
 ---
 
-## Security & Governance
+## Keamanan & Tata Kelola
 
-### In-Transit Encryption
-- Kafka messages encrypted with **Fernet symmetric encryption** before publishing (`ingestion/binance_producer.py`).
-- Decryption key sourced from `ENCRYPTION_KEY` env var; consumed by Spark Streaming for inference.
+### Enkripsi In-Transit
+- Pesan Kafka dienkripsi dengan **Fernet symmetric encryption** sebelum dipublish (`ingestion/binance_producer.py`).
+- Kunci dekripsi dari env `ENCRYPTION_KEY`; dikonsumsi oleh Spark Streaming untuk inference.
 
-### Access Control
-- **Nginx reverse proxy**: HTTPS (self-signed cert) + HTTP Basic Auth for Streamlit dashboard.
-- **PostgreSQL roles**: `kelompok4_ipbd` (full admin), `dashboard_reader` (read-only for dashboard), `marquez` (lineage DB owner).
-- **PgBouncer**: Transaction pooling with `userlist.txt` authentication (MD5 hash).
+### Kontrol Akses
+- **Nginx reverse proxy**: HTTPS (self-signed cert) + HTTP Basic Auth untuk Streamlit dashboard.
+- **Role PostgreSQL**: `kelompok4_ipbd` (admin penuh), `dashboard_reader` (read-only untuk dashboard), `marquez` (owner DB lineage).
+- **PgBouncer**: Transaction pooling dengan autentikasi `userlist.txt` (hash MD5).
 
-### Data Governance
-- **Audit Triggers**: Automatic INSERT/UPDATE/DELETE logging to `audit_log` table for all core tables.
-- **Data Lineage**: Every pipeline run records source, target, rows_processed, quality_status to `pipeline_lineage`. Marquez collects OpenLineage events for visual lineage.
-- **Great Expectations**: 3 validation suites (OHLC, sentiment, predictions) run hourly via Prefect.
-- **Data Catalog**: Central `table_metadata` (owner, sensitivity, refresh frequency), `business_glossary`, `column_lineage` (source → target mapping with transformations).
-- **Data Quality**: Hourly profiling (null %, distinct, min/max/mean), stored in `data_quality_stats`.
+### Tata Kelola Data
+- **Audit Trigger**: Pencatatan INSERT/UPDATE/DELETE otomatis ke tabel `audit_log` untuk semua tabel inti.
+- **Data Lineage**: Setiap run pipeline mencatat source, target, rows_processed, quality_status ke `pipeline_lineage`. Marquez mengumpulkan event OpenLineage untuk visualisasi lineage.
+- **Great Expectations**: 3 suite validasi (OHLC, sentimen, prediksi) dijalankan setiap jam via Prefect.
+- **Data Catalog**: `table_metadata` terpusat (owner, sensitivity, frekuensi refresh), `business_glossary`, `column_lineage` (pemetaan source → target dengan transformasi).
+- **Data Quality**: Profiling setiap jam (null %, distinct, min/max/mean), disimpan di `data_quality_stats`.
 
-### System Monitoring
-- **Telegraf**: Collects CPU, memory, disk, and Docker container metrics every 15s → PostgreSQL.
-- **Grafana**: Pre-provisioned dashboards + 4 alert rules (Telegram notifications).
-- **Prefect health check**: Every 60s — container status, host resources, anomaly alerts.
-- **Model performance check**: Hourly — computes production RMSE/MAE, alerts if degradation > 50%.
+### Monitoring Sistem
+- **Telegraf**: Mengumpulkan metrik CPU, memory, disk, dan container Docker setiap 15 detik → PostgreSQL.
+- **Grafana**: Dashboard bawaan + 4 aturan alert (notifikasi Telegram).
+- **Prefect health check**: Setiap 60 detik — status container, resource host, alert anomali.
+- **Model performance check**: Setiap jam — menghitung RMSE/MAE produksi, alert jika degradasi > 50%.
 
 ---
 
-## Verification
+## Verifikasi
 
-### Check Data Flow (PostgreSQL)
+### Cek Aliran Data (PostgreSQL)
 
 ```sql
--- Real-time OHLC data
+-- Data OHLC real-time
 SELECT COUNT(*) AS rows, MAX(window_start) AS latest
 FROM btc_ohlc_1m;
 
--- Sentiment data
+-- Data sentimen
 SELECT COUNT(*) AS rows, MAX(window_start) AS latest
 FROM sentiment_30m;
 
--- Predictions
+-- Prediksi
 SELECT COUNT(*) AS rows, MAX(window_start) AS latest
 FROM volatility_pred;
 
@@ -402,10 +402,10 @@ GROUP BY 1, 2
 ORDER BY 1;
 ```
 
-### Federated Query (Trino)
+### Query Terfederasi (Trino)
 
 ```sql
--- Join PostgreSQL OHLC + MinIO tweets via Trino
+-- JOIN PostgreSQL OHLC + MinIO tweets via Trino
 SELECT o.window_start, o.close, t.compound
 FROM postgresql.public.btc_ohlc_1m o
 LEFT JOIN hive.twitter_raw.tweets t
@@ -414,8 +414,8 @@ LIMIT 10;
 ```
 
 ### Monitoring
-- Grafana: `http://host:3001` — check alert rules and pipeline dashboard.
-- Prefect: `http://host:4201` — view flow runs, task logs, deployment schedules.
+- Grafana: `http://host:3001` — cek alert rules dan pipeline dashboard.
+- Prefect: `http://host:4201` — lihat flow runs, task logs, jadwal deployment.
 - MLflow: `http://host:5001` — model registry, experiment tracking, feature importance.
-- Marquez: `http://host:3002` — visual data lineage graph.
-- Kafka UI: `http://host:8083` — topic browser, consumer groups.
+- Marquez: `http://host:3002` — grafik lineage data visual.
+- Kafka UI: `http://host:8083` — browser topic, consumer groups.
