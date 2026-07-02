@@ -64,28 +64,33 @@ def compute_actual_volatility() -> int:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                WITH pred_with_actual AS (
+                WITH ohlc_returns AS (
                     SELECT
-                        p.window_start,
-                        p.predicted_vol_5m,
-                        p.model_version,
-                        (
-                            SELECT STDDEV(
-                                (o.close - LAG(o.close) OVER (ORDER BY o.window_start))
-                                / NULLIF(LAG(o.close) OVER (ORDER BY o.window_start), 0)
-                            )
-                            FROM btc_ohlc_1m o
-                            WHERE o.window_start > p.window_start
-                              AND o.window_start <= p.window_start + INTERVAL '5 minutes'
-                        ) AS actual_vol_5m
+                        window_start,
+                        (close - LAG(close) OVER (ORDER BY window_start))
+                            / NULLIF(LAG(close) OVER (ORDER BY window_start), 0) AS ret
+                    FROM btc_ohlc_1m
+                ),
+                future_vol AS (
+                    SELECT
+                        p.window_start AS ws,
+                        STDDEV(r.ret) AS actual_vol_5m
                     FROM volatility_pred p
-                    WHERE p.window_start > NOW() - INTERVAL '7 days'
-                      AND p.window_start < NOW() - INTERVAL '5 minutes'
+                    JOIN ohlc_returns r ON r.window_start > p.window_start
+                                       AND r.window_start <= p.window_start + INTERVAL '5 minutes'
+                    GROUP BY p.window_start
                 )
                 INSERT INTO btc_predictions (window_start, predicted_vol, actual_vol, model_version)
-                SELECT window_start, predicted_vol_5m, actual_vol_5m, model_version
-                FROM pred_with_actual
-                WHERE actual_vol_5m IS NOT NULL
+                SELECT
+                    p.window_start,
+                    p.predicted_vol_5m,
+                    f.actual_vol_5m,
+                    p.model_version
+                FROM volatility_pred p
+                LEFT JOIN future_vol f ON f.ws = p.window_start
+                WHERE p.window_start > NOW() - INTERVAL '7 days'
+                  AND p.window_start < NOW() - INTERVAL '5 minutes'
+                  AND f.actual_vol_5m IS NOT NULL
                 ON CONFLICT (window_start) DO UPDATE SET
                     actual_vol = EXCLUDED.actual_vol,
                     model_mae  = ABS(EXCLUDED.actual_vol - btc_predictions.predicted_vol)

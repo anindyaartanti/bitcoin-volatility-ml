@@ -441,9 +441,11 @@ services:
   # TELEGRAF (system metrics → PostgreSQL)
   # ─────────────────────────────────────────
   telegraf:
-    image: telegraf:1.30
+    build:
+      context: ./monitoring/telegraf
+      dockerfile: Dockerfile
     container_name: telegraf
-    user: telegraf:993  # docker group inside container
+    user: telegraf:998  # docker group GID on host
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"

@@ -237,7 +237,7 @@ groups:
                 SELECT COUNT(*) AS cnt
                 FROM docker_container_status
                 WHERE time > NOW() - INTERVAL '5 minutes'
-                  AND status = 'exited'
+                  AND container_status = 'exited'
               refId: A
             relativeTimeRange:
               from: 300

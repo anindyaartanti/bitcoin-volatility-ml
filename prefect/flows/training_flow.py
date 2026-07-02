@@ -28,9 +28,6 @@ from prefect.deployments import Deployment
 from prefect.client.schemas.schedules import CronSchedule
 from prefect.client.schemas.objects import MinimalDeploymentSchedule
 from prefect.logging import get_run_logger
-from openlineage.client import OpenLineageClient
-from openlineage.client.event_v2 import Dataset, Job, Run, RunEvent, RunState, OutputDataset
-from openlineage.client.uuid import generate_new_uuid
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
@@ -301,16 +298,39 @@ def log_to_mlflow(model_tuple) -> dict:
 
     if mae < MAE_THRESHOLD:
         client = MlflowClient(tracking_uri=MLFLOW_URI)
+
+        # Cek champion saat ini
+        champion_mae = None
+        try:
+            champion_mv = client.get_model_version_by_alias(MODEL_NAME, "production")
+            if champion_mv:
+                champion_run = client.get_run(champion_mv.run_id)
+                champion_mae = champion_run.data.metrics.get("mae_cv_mean")
+        except Exception:
+            pass
+
+        should_promote = champion_mae is None or mae < champion_mae
+
         versions = client.search_model_versions(f"name='{MODEL_NAME}'")
         if versions:
             latest = max(versions, key=lambda v: int(v.version))
-            client.set_registered_model_alias(
-                name=MODEL_NAME,
-                alias="production",
-                version=latest.version,
-            )
-            promoted = True
-            log.info("Model v%s dipromosikan ke Production (MAE=%.6f)", latest.version, mae)
+
+            if should_promote:
+                client.set_registered_model_alias(
+                    name=MODEL_NAME,
+                    alias="production",
+                    version=latest.version,
+                )
+                promoted = True
+                log.info(
+                    "Model v%s dipromosikan ke Production (MAE=%.6f vs champion %.6f)",
+                    latest.version, mae, champion_mae or 0,
+                )
+            else:
+                log.warning(
+                    "Model v%s MAE=%.6f tidak lebih baik dari champion %.6f, skip promote",
+                    latest.version, mae, champion_mae,
+                )
     else:
         msg = (
             f"⚠️ Model training selesai tapi MAE={mae:.6f} melebihi "
@@ -361,41 +381,40 @@ def record_lineage(metrics: dict, mlflow_result: dict, n_rows: int) -> None:
         log.warning("Gagal catat pipeline_lineage: %s", e)
 
 
+# ─── Failure Handler ──────────────────────────────────────────
+def _handle_training_failure(error: str = ""):
+    log = get_run_logger()
+    params_json = json.dumps({"error": error[:500]}) if error else "{}"
+    try:
+        conn = psycopg2.connect(**PGBOUNCER_DSN)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO pipeline_lineage
+                    (pipeline_name, source, target_table, rows_processed,
+                     rows_rejected, quality_status, started_at, finished_at, params)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), %s)
+                """,
+                ("model_training", "v_ml_features", "mlflow_registry",
+                 0, 0, "failed", params_json),
+            )
+        conn.commit()
+        conn.close()
+        log.warning("Lineage dicatat: status=failed")
+    except Exception as e:
+        log.warning("Gagal catat pipeline_lineage failure: %s", e)
+
+
 # ─── Main Flow ────────────────────────────────────────────────
 @flow(name="model-training", log_prints=True)
 def training_flow() -> None:
-    import uuid as _uuid
-    ol_run_id = str(_uuid.uuid4())
-    ol_job = Job(namespace="bitcoin-volatility-ml", name="model-training")
-    ol_run = Run(runId=ol_run_id)
-    ol_input = Dataset(namespace="bitcoin-volatility-ml", name="postgresql.public.v_ml_features")
-    ol_output = Dataset(namespace="bitcoin-volatility-ml", name="mlflow://btc_volatility_xgb")
-    ol_client = OpenLineageClient.from_environment()
-
-    ol_client.emit(RunEvent(
-        eventType=RunState.START,
-        eventTime=datetime.now(timezone.utc).isoformat(),
-        run=ol_run, job=ol_job, producer="prefect-model-training/1.0",
-    ))
-
     try:
         df = extract_features()
         model_tuple = train_model(df)
         mlflow_result = log_to_mlflow(model_tuple)
         record_lineage(model_tuple[2], mlflow_result, len(df))
-        ol_client.emit(RunEvent(
-            eventType=RunState.COMPLETE,
-            eventTime=datetime.now(timezone.utc).isoformat(),
-            run=ol_run, job=ol_job, producer="prefect-model-training/1.0",
-            inputs=[ol_input],
-            outputs=[ol_output],
-        ))
-    except Exception:
-        ol_client.emit(RunEvent(
-            eventType=RunState.FAIL,
-            eventTime=datetime.now(timezone.utc).isoformat(),
-            run=ol_run, job=ol_job, producer="prefect-model-training/1.0",
-        ))
+    except Exception as e:
+        _handle_training_failure(str(e))
         raise
 
 

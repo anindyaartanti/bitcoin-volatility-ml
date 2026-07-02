@@ -271,12 +271,11 @@ def load_model_and_scaler():
 def start_model_refresh_thread():
     def _loop():
         while True:
-            model, _, _ = _INFERENCE_ARTIFACTS or (None, None, None)
-            if model is None:
-                logger.info("Periodic reload: mencoba load model dari MLflow...")
-                ok = load_model_and_scaler()
-                if ok:
-                    logger.info("Periodic reload: model berhasil di-load, inference siap.")
+            logger.info("Periodic reload: mencoba load model dari MLflow...")
+            ok = load_model_and_scaler()
+            if ok:
+                _, _, version = _INFERENCE_ARTIFACTS or (None, None, None)
+                logger.info("Periodic reload: model v%s loaded", version)
             time.sleep(300)
 
     t = threading.Thread(target=_loop, daemon=True)
@@ -411,13 +410,6 @@ def create_spark_session() -> SparkSession:
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
         .config("spark.streaming.stopGracefullyOnShutdown",   "true")
         .config("spark.sql.session.timeZone",                 "UTC")
-        # OpenLineage → Marquez
-        .config("spark.extraListeners",
-                "io.openlineage.spark.agent.OpenLineageSparkListener")
-        .config("spark.openlineage.transport.type", "http")
-        .config("spark.openlineage.transport.url",
-                "http://marquez-api:5000")
-        .config("spark.openlineage.namespace", "bitcoin-volatility-ml")
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")

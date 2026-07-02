@@ -94,7 +94,7 @@ def profile_tables() -> dict:
                     logger.info(f"{table}: empty, skip profiling")
                     results.append({
                         "table": table, "total_rows": 0,
-                        "columns": [], "alerts": [],
+                        "columns": [], "alerts": list(alerts),
                     })
                     continue
 
@@ -103,7 +103,10 @@ def profile_tables() -> dict:
                 for col in df.columns:
                     null_count = int(df[col].isnull().sum())
                     null_pct = round(null_count / total_rows * 100, 2)
-                    distinct = int(df[col].nunique()) if total_rows > 0 else 0
+                    try:
+                        distinct = int(df[col].nunique()) if total_rows > 0 else 0
+                    except TypeError:
+                        distinct = int(df[col].astype(str).nunique()) if total_rows > 0 else 0
                     type_mismatch = 0
 
                     min_v, max_v, mean_v = None, None, None
@@ -134,7 +137,7 @@ def profile_tables() -> dict:
 
                 results.append({
                     "table": table, "total_rows": total_rows,
-                    "columns": col_stats, "alerts": alerts,
+                    "columns": [dict(c) for c in col_stats], "alerts": list(alerts),
                 })
 
         if alerts:
@@ -143,7 +146,12 @@ def profile_tables() -> dict:
                 "\n".join(alerts[:5])
             )
 
-        return {"tables": results, "alerts": alerts}
+        return {
+            "tables": results,
+            "alerts": [str(a) for a in alerts],
+            "n_tables": len(results),
+            "n_alerts": len(alerts),
+        }
     finally:
         if engine:
             engine.dispose()

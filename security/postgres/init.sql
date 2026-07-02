@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS pipeline_lineage (
     target_table    VARCHAR(50),
     rows_processed  INTEGER,
     rows_rejected   INTEGER DEFAULT 0,
-    quality_status  VARCHAR(10),
+    quality_status  VARCHAR(30),
     started_at      TIMESTAMPTZ,
     finished_at     TIMESTAMPTZ,
     params          JSONB
@@ -250,6 +250,20 @@ CREATE TABLE IF NOT EXISTS data_quality_stats (
 
 CREATE INDEX IF NOT EXISTS idx_dq_checked_at ON data_quality_stats (checked_at DESC);
 
+-- ─── docker_container_status ─────────────────────────────────
+-- Auto-created by Telegraf outputs.postgresql; defined here for clarity & metadata
+CREATE TABLE IF NOT EXISTS docker_container_status (
+    time            TIMESTAMPTZ NOT NULL,
+    container_name  TEXT,
+    status          TEXT,
+    value           DOUBLE PRECISION
+);
+COMMENT ON TABLE docker_container_status IS 'Status container Docker (running/exited/paused) dari Telegraf exec input via Docker API';
+COMMENT ON COLUMN docker_container_status.container_name IS 'Nama container Docker';
+COMMENT ON COLUMN docker_container_status.status IS 'Status: running, exited, paused, created';
+
+CREATE INDEX IF NOT EXISTS idx_dcs_time ON docker_container_status (time DESC);
+
 -- ─── table_metadata ──────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS table_metadata (
     id                BIGSERIAL PRIMARY KEY,
@@ -267,13 +281,26 @@ CREATE TABLE IF NOT EXISTS table_metadata (
 );
 
 INSERT INTO table_metadata (table_name, description, owner, data_steward, sensitivity, refresh_frequency, source_system, retention_days, pii_columns) VALUES
-('btc_ohlc_1m',       'OHLC agregasi 1 menit dari Binance WebSocket via Spark Streaming', 'kelompok4_ipbd', 'fatih', 'internal',    'real-time (1m)', 'Binance WebSocket → Kafka → Spark', NULL, NULL),
-('sentiment_30m',     'Skor sentimen Twitter aggregasi 30 menit (FinVADER)',            'kelompok4_ipbd', 'fatih', 'internal',    'batch (30m)',    'Twitter/X scrape → Prefect → MinIO → FinVADER', NULL, NULL),
-('volatility_pred',   'Prediksi volatilitas 5 menit dari XGBoost inference real-time',   'kelompok4_ipbd', 'fatih', 'internal',    'real-time (30s)', 'Spark Streaming + MLflow Registry', NULL, NULL),
-('btc_predictions',   'Prediksi vs aktual volatilitas (MLflow model registry)',          'kelompok4_ipbd', 'fatih', 'internal',    'batch (daily)',  'Prefect training flow + MLflow', NULL, NULL),
-('pipeline_lineage',  'Data lineage: setiap run pipeline source/target/row/status',       'kelompok4_ipbd', 'fatih', 'internal',    'per-run',        'Semua pipeline', NULL, NULL),
-('audit_log',         'Audit trail otomatis via trigger INSERT/UPDATE/DELETE',            'kelompok4_ipbd', 'fatih', 'internal',    'per-event',      'PostgreSQL trigger', NULL, NULL),
-('data_quality_stats','Statistik profiling data: null %, min, max, mean per kolom',       'kelompok4_ipbd', 'fatih', 'internal',    'hourly',         'Prefect data-quality-check flow', NULL, NULL)
+('btc_ohlc_1m',       'OHLC agregasi 1 menit dari Binance WebSocket via Spark Streaming',    'kelompok4_ipbd', 'fatih', 'internal',    'real-time (1m)', 'Binance WebSocket → Kafka → Spark', NULL, NULL),
+('sentiment_30m',     'Skor sentimen Twitter aggregasi 30 menit (FinVADER)',                 'kelompok4_ipbd', 'fatih', 'internal',    'batch (30m)',    'Twitter/X scrape → Prefect → MinIO → FinVADER', NULL, NULL),
+('volatility_pred',   'Prediksi volatilitas 5 menit dari XGBoost inference real-time',        'kelompok4_ipbd', 'fatih', 'internal',    'real-time (30s)', 'Spark Streaming + MLflow Registry', NULL, NULL),
+('btc_predictions',   'Prediksi vs aktual volatilitas (MLflow model registry)',               'kelompok4_ipbd', 'fatih', 'internal',    'batch (daily)',  'Prefect training flow + MLflow', NULL, NULL),
+('pipeline_lineage',  'Data lineage: setiap run pipeline source/target/row/status',            'kelompok4_ipbd', 'fatih', 'internal',    'per-run',        'Semua pipeline', NULL, NULL),
+('audit_log',         'Audit trail otomatis via trigger INSERT/UPDATE/DELETE',                 'kelompok4_ipbd', 'fatih', 'internal',    'per-event',      'PostgreSQL trigger', NULL, NULL),
+('data_quality_stats','Statistik profiling data: null %, min, max, mean per kolom',            'kelompok4_ipbd', 'fatih', 'internal',    'hourly',         'Prefect data-quality-check flow', NULL, NULL),
+('app_logs',          'Log agregasi dari semua pipeline dan service',                          'kelompok4_ipbd', 'fatih', 'internal',    'real-time',      'Prefect log-ingester flow', NULL, NULL),
+('cpu',               'Host CPU usage metrics dari Telegraf',                                  'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.cpu', NULL, NULL),
+('disk',              'Host disk usage metrics dari Telegraf',                                 'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.disk', NULL, NULL),
+('mem',               'Host memory usage metrics dari Telegraf',                               'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.mem', NULL, NULL),
+('model_performance', 'Metrik performa model (RMSE, MAE) tiap evaluasi',                       'kelompok4_ipbd', 'fatih', 'internal',    'per-evaluasi',   'Prefect model-performance-check flow', NULL, NULL),
+('business_glossary', 'Glosarium istilah bisnis yang dipetakan ke tabel/kolom teknis',         'kelompok4_ipbd', 'fatih', 'public',      'statis',         'init.sql seed', NULL, NULL),
+('column_lineage',    'Lineage kolom antar tabel (source → target dengan transformasi)',       'kelompok4_ipbd', 'fatih', 'internal',    'statis',         'init.sql seed', NULL, NULL),
+('table_metadata',    'Metadata terpusat deskripsi, owner, sensitivity, frekuensi refresh',     'kelompok4_ipbd', 'fatih', 'internal',    'statis',         'init.sql seed', NULL, NULL),
+('docker_container_status', 'Status container Docker dari Telegraf via Docker API',                 'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.docker', NULL, NULL),
+('docker',                  'Agregasi container Docker: total running, stopped, paused',            'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.docker', NULL, NULL),
+('docker_container_cpu',    'CPU usage per container dari Telegraf',                                'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.docker', NULL, NULL),
+('docker_container_health', 'Healthcheck status per container dari Telegraf',                       'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.docker', NULL, NULL),
+('docker_container_mem',    'Memory usage per container dari Telegraf',                             'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.docker', NULL, NULL)
 ON CONFLICT (table_name) DO NOTHING;
 
 -- ─── business_glossary ───────────────────────────────────────
