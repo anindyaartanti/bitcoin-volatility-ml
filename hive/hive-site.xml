@@ -84,7 +84,7 @@
 
   <property>
     <name>fs.s3a.secret.key</name>
-    <value>k4ipbd_minio_2026</value>
+    <value>minioadmin123</value>
   </property>
 
   <property>

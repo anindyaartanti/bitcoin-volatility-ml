@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS pipeline_lineage (
     target_table    VARCHAR(50),
     rows_processed  INTEGER,
     rows_rejected   INTEGER DEFAULT 0,
-    quality_status  VARCHAR(10),
+    quality_status  VARCHAR(30),
     started_at      TIMESTAMPTZ,
     finished_at     TIMESTAMPTZ,
     params          JSONB
@@ -227,4 +227,308 @@ BEGIN
 END$$;
 
 -- ─── GRANTS ──────────────────────────────────────────────────
-GRANT SELECT ON btc_ohlc_1m, sentiment_30m, volatility_pred, btc_predictions, pipeline_lineage, audit_log TO dashboard_reader;
+-- ─── system_metrics (Telegraf auto-creates: cpu, mem, disk, docker_container_cpu, docker_container_mem) ──
+-- Tables created at runtime by Telegraf on first metric flush (~15s after telegraf starts)
+-- Column names follow Telegraf convention: field names become columns, tag names become columns
+
+-- ─── data_quality_stats ──────────────────────────────────────
+CREATE TABLE IF NOT EXISTS data_quality_stats (
+    id             BIGSERIAL PRIMARY KEY,
+    table_name     VARCHAR(50) NOT NULL,
+    column_name    VARCHAR(50) NOT NULL,
+    null_count     INTEGER,
+    total_rows     INTEGER,
+    null_percent   NUMERIC(6,2),
+    distinct_count INTEGER,
+    type_mismatch  INTEGER DEFAULT 0,
+    min_value      DOUBLE PRECISION,
+    max_value      DOUBLE PRECISION,
+    mean_value     DOUBLE PRECISION,
+    quality_status VARCHAR(10) DEFAULT 'ok',
+    checked_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dq_checked_at ON data_quality_stats (checked_at DESC);
+
+-- ─── docker_container_status ─────────────────────────────────
+-- Auto-created by Telegraf outputs.postgresql; defined here for clarity & metadata
+CREATE TABLE IF NOT EXISTS docker_container_status (
+    time            TIMESTAMPTZ NOT NULL,
+    container_name  TEXT,
+    status          TEXT,
+    value           DOUBLE PRECISION
+);
+COMMENT ON TABLE docker_container_status IS 'Status container Docker (running/exited/paused) dari Telegraf exec input via Docker API';
+COMMENT ON COLUMN docker_container_status.container_name IS 'Nama container Docker';
+COMMENT ON COLUMN docker_container_status.status IS 'Status: running, exited, paused, created';
+
+CREATE INDEX IF NOT EXISTS idx_dcs_time ON docker_container_status (time DESC);
+
+-- ─── table_metadata ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS table_metadata (
+    id                BIGSERIAL PRIMARY KEY,
+    table_name        VARCHAR(50) NOT NULL UNIQUE,
+    description       TEXT,
+    owner             VARCHAR(50),
+    data_steward      VARCHAR(50),
+    sensitivity       VARCHAR(20) CHECK (sensitivity IN ('public','internal','confidential','restricted')),
+    refresh_frequency VARCHAR(30),
+    source_system     TEXT,
+    retention_days    INTEGER,
+    pii_columns       TEXT,
+    created_at        TIMESTAMPTZ DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+INSERT INTO table_metadata (table_name, description, owner, data_steward, sensitivity, refresh_frequency, source_system, retention_days, pii_columns) VALUES
+('btc_ohlc_1m',       'OHLC agregasi 1 menit dari Binance WebSocket via Spark Streaming',    'kelompok4_ipbd', 'fatih', 'internal',    'real-time (1m)', 'Binance WebSocket → Kafka → Spark', NULL, NULL),
+('sentiment_30m',     'Skor sentimen Twitter aggregasi 30 menit (FinVADER)',                 'kelompok4_ipbd', 'fatih', 'internal',    'batch (30m)',    'Twitter/X scrape → Prefect → MinIO → FinVADER', NULL, NULL),
+('volatility_pred',   'Prediksi volatilitas 5 menit dari XGBoost inference real-time',        'kelompok4_ipbd', 'fatih', 'internal',    'real-time (30s)', 'Spark Streaming + MLflow Registry', NULL, NULL),
+('btc_predictions',   'Prediksi vs aktual volatilitas (MLflow model registry)',               'kelompok4_ipbd', 'fatih', 'internal',    'batch (daily)',  'Prefect training flow + MLflow', NULL, NULL),
+('pipeline_lineage',  'Data lineage: setiap run pipeline source/target/row/status',            'kelompok4_ipbd', 'fatih', 'internal',    'per-run',        'Semua pipeline', NULL, NULL),
+('audit_log',         'Audit trail otomatis via trigger INSERT/UPDATE/DELETE',                 'kelompok4_ipbd', 'fatih', 'internal',    'per-event',      'PostgreSQL trigger', NULL, NULL),
+('data_quality_stats','Statistik profiling data: null %, min, max, mean per kolom',            'kelompok4_ipbd', 'fatih', 'internal',    'hourly',         'Prefect data-quality-check flow', NULL, NULL),
+('app_logs',          'Log agregasi dari semua pipeline dan service',                          'kelompok4_ipbd', 'fatih', 'internal',    'real-time',      'Prefect log-ingester flow', NULL, NULL),
+('cpu',               'Host CPU usage metrics dari Telegraf',                                  'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.cpu', NULL, NULL),
+('disk',              'Host disk usage metrics dari Telegraf',                                 'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.disk', NULL, NULL),
+('mem',               'Host memory usage metrics dari Telegraf',                               'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.mem', NULL, NULL),
+('model_performance', 'Metrik performa model (RMSE, MAE) tiap evaluasi',                       'kelompok4_ipbd', 'fatih', 'internal',    'per-evaluasi',   'Prefect model-performance-check flow', NULL, NULL),
+('business_glossary', 'Glosarium istilah bisnis yang dipetakan ke tabel/kolom teknis',         'kelompok4_ipbd', 'fatih', 'public',      'statis',         'init.sql seed', NULL, NULL),
+('column_lineage',    'Lineage kolom antar tabel (source → target dengan transformasi)',       'kelompok4_ipbd', 'fatih', 'internal',    'statis',         'init.sql seed', NULL, NULL),
+('table_metadata',    'Metadata terpusat deskripsi, owner, sensitivity, frekuensi refresh',     'kelompok4_ipbd', 'fatih', 'internal',    'statis',         'init.sql seed', NULL, NULL),
+('docker_container_status', 'Status container Docker dari Telegraf via Docker API',                 'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.docker', NULL, NULL),
+('docker',                  'Agregasi container Docker: total running, stopped, paused',            'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.docker', NULL, NULL),
+('docker_container_cpu',    'CPU usage per container dari Telegraf',                                'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.docker', NULL, NULL),
+('docker_container_health', 'Healthcheck status per container dari Telegraf',                       'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.docker', NULL, NULL),
+('docker_container_mem',    'Memory usage per container dari Telegraf',                             'kelompok4_ipbd', 'fatih', 'internal',    '15s',            'Telegraf inputs.docker', NULL, NULL)
+ON CONFLICT (table_name) DO NOTHING;
+
+-- ─── business_glossary ───────────────────────────────────────
+CREATE TABLE IF NOT EXISTS business_glossary (
+    id               BIGSERIAL PRIMARY KEY,
+    term             VARCHAR(100) NOT NULL UNIQUE,
+    definition       TEXT NOT NULL,
+    technical_table  VARCHAR(50),
+    technical_column VARCHAR(50),
+    category         VARCHAR(50),
+    owner            VARCHAR(50),
+    created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+INSERT INTO business_glossary (term, definition, technical_table, technical_column, category, owner) VALUES
+('OHLC',                       'Open-High-Low-Close: harga pembuka, tertinggi, terendah, penutup dalam 1 menit', 'btc_ohlc_1m', NULL, 'Market Data', 'kelompok4_ipbd'),
+('Volatilitas',                'Standar deviasi log-return harga dalam window 1 menit',                        'btc_ohlc_1m', 'volatility', 'Risk Metric', 'kelompok4_ipbd'),
+('Volume Perdagangan',         'Total kuantitas BTC yang diperdagangkan dalam 1 menit',                       'btc_ohlc_1m', 'volume', 'Market Data', 'kelompok4_ipbd'),
+('Compound Score',             'Skor sentimen FinVADER: -1 (negatif) sampai +1 (positif)',                    'sentiment_30m', 'compound_score', 'Sentiment', 'kelompok4_ipbd'),
+('Positive Ratio',             'Proporsi tweet dengan compound > 0.05 dalam window 30 menit',                 'sentiment_30m', 'positive_ratio', 'Sentiment', 'kelompok4_ipbd'),
+('Weighted Compound',          'Skor compound dikalikan jumlah like, dinormalisasi',                          'sentiment_30m', 'weighted_compound', 'Sentiment', 'kelompok4_ipbd'),
+('Predicted Vol 5m',           'Prediksi volatilitas 5 menit ke depan dari XGBoost model',                    'volatility_pred', 'predicted_vol_5m', 'ML Prediction', 'kelompok4_ipbd'),
+('Rolling Vol 5m',             'Std dev return 5 menit rolling (fitur input model)',                          'volatility_pred', 'rolling_vol_5m', 'Risk Metric', 'kelompok4_ipbd'),
+('Inference Latency',          'Waktu yang dibutuhkan model untuk menghasilkan satu prediksi (ms)',            'volatility_pred', 'inference_latency_ms', 'ML Metric', 'kelompok4_ipbd'),
+('Data Quality Flag',          'Indikator kualitas data: ok (>5 tweet), low_sample (<5), stale (forward-fill)', 'sentiment_30m', 'data_quality', 'Data Governance', 'kelompok4_ipbd'),
+('Pipeline Lineage',           'Metadata run setiap pipeline: source, target, row count, status',             'pipeline_lineage', NULL, 'Data Governance', 'kelompok4_ipbd'),
+('Target Vol 5m',              'Std dev return 5 menit ke depan — target supervised learning',                'v_ml_features', 'target_vol_5m', 'ML Target', 'kelompok4_ipbd'),
+('Minutes Since Sentiment',    'Selisih menit sejak data sentimen terakhir diperbarui (staleness)',           'volatility_pred', 'minutes_since_sentiment', 'Data Governance', 'kelompok4_ipbd'),
+('Forward-fill',               'Mengisi window gagal dengan data window sukses terakhir (stale flag)',        NULL, NULL, 'Data Governance', 'kelompok4_ipbd'),
+('Circuit Breaker',            'Mekanisme safety: hentikan write jika gagal 5x berturut, reset setelah 60s',  NULL, NULL, 'System', 'kelompok4_ipbd')
+ON CONFLICT (term) DO NOTHING;
+
+-- ─── COMMENT ON ──────────────────────────────────────────────
+
+-- btc_ohlc_1m
+COMMENT ON TABLE btc_ohlc_1m IS 'OHLC agregasi per 1 menit dari Binance WebSocket (btcusdt@trade) via Spark Structured Streaming';
+COMMENT ON COLUMN btc_ohlc_1m.window_start IS 'Waktu mulai window 1 menit (UTC)';
+COMMENT ON COLUMN btc_ohlc_1m.window_end IS 'Waktu akhir window 1 menit (UTC)';
+COMMENT ON COLUMN btc_ohlc_1m.open IS 'Harga trade pertama dalam window';
+COMMENT ON COLUMN btc_ohlc_1m.high IS 'Harga trade tertinggi dalam window';
+COMMENT ON COLUMN btc_ohlc_1m.low IS 'Harga trade terendah dalam window';
+COMMENT ON COLUMN btc_ohlc_1m.close IS 'Harga trade terakhir dalam window';
+COMMENT ON COLUMN btc_ohlc_1m.volume IS 'Total kuantitas BTC dalam window';
+COMMENT ON COLUMN btc_ohlc_1m.trade_count IS 'Jumlah trade dalam window';
+COMMENT ON COLUMN btc_ohlc_1m.volatility IS 'Std dev log-return harga per trade dalam window';
+
+-- sentiment_30m
+COMMENT ON TABLE sentiment_30m IS 'Skor sentimen Twitter/X aggregasi per 30 menit dari FinVADER scoring';
+COMMENT ON COLUMN sentiment_30m.compound_score IS 'FinVADER compound score, range [-1 (negatif), +1 (positif)]';
+COMMENT ON COLUMN sentiment_30m.positive_ratio IS 'Proporsi tweet dengan compound > 0.05 dalam window';
+COMMENT ON COLUMN sentiment_30m.negative_ratio IS 'Proporsi tweet dengan compound < -0.05 dalam window';
+COMMENT ON COLUMN sentiment_30m.neutral_ratio IS 'Proporsi tweet dengan compound dalam [-0.05, 0.05]';
+COMMENT ON COLUMN sentiment_30m.weighted_compound IS 'Compound score dikalikan like count, dinormalisasi';
+COMMENT ON COLUMN sentiment_30m.tweet_count IS 'Jumlah tweet dalam window 30 menit';
+COMMENT ON COLUMN sentiment_30m.data_quality IS 'Kualitas data: ok (>5 tweet), low_sample (<5), stale (forward-fill)';
+
+-- volatility_pred
+COMMENT ON TABLE volatility_pred IS 'Hasil prediksi volatilitas 5 menit ke depan dari XGBoost inference real-time';
+COMMENT ON COLUMN volatility_pred.predicted_vol_5m IS 'Prediksi std dev return 5 menit ke depan';
+COMMENT ON COLUMN volatility_pred.rolling_vol_5m IS 'Std dev return 5 menit rolling (fitur OHLC)';
+COMMENT ON COLUMN volatility_pred.price_range_ratio IS '(high - low) / close — rasio range harga';
+COMMENT ON COLUMN volatility_pred.vol_ratio IS 'volume / avg_volume_10min — rasio volume';
+COMMENT ON COLUMN volatility_pred.compound_score IS 'Skor sentimen FinVADER saat inference (dari cache)';
+COMMENT ON COLUMN volatility_pred.minutes_since_sentiment IS 'Menit sejak sentimen terakhir diperbarui (staleness)';
+COMMENT ON COLUMN volatility_pred.model_version IS 'Versi model XGBoost dari MLflow Registry';
+COMMENT ON COLUMN volatility_pred.inference_latency_ms IS 'Latency inference dalam milidetik';
+
+-- btc_predictions
+COMMENT ON TABLE btc_predictions IS 'Perbandingan prediksi vs aktual volatilitas untuk evaluasi model';
+COMMENT ON COLUMN btc_predictions.predicted_vol IS 'Nilai prediksi volatilitas';
+COMMENT ON COLUMN btc_predictions.actual_vol IS 'Nilai aktual volatilitas dari data OHLC';
+COMMENT ON COLUMN btc_predictions.model_mae IS 'MAE model saat training';
+
+-- pipeline_lineage
+COMMENT ON TABLE pipeline_lineage IS 'Data lineage: mencatat setiap run pipeline dengan source, target, row count, kualitas';
+COMMENT ON COLUMN pipeline_lineage.run_id IS 'UUID unik per pipeline run';
+COMMENT ON COLUMN pipeline_lineage.pipeline_name IS 'Nama pipeline: sentiment_pipeline, model_training, spark_streaming, system_health_check, data_quality_check';
+COMMENT ON COLUMN pipeline_lineage.source IS 'Sumber data yang diproses';
+COMMENT ON COLUMN pipeline_lineage.target_table IS 'Tabel tujuan penulisan';
+COMMENT ON COLUMN pipeline_lineage.rows_processed IS 'Jumlah baris yang berhasil diproses';
+COMMENT ON COLUMN pipeline_lineage.rows_rejected IS 'Jumlah baris yang ditolak';
+COMMENT ON COLUMN pipeline_lineage.quality_status IS 'Status kualitas: ok, failed, promoted, stale';
+COMMENT ON COLUMN pipeline_lineage.params IS 'Metadata tambahan dalam format JSONB';
+
+-- audit_log
+COMMENT ON TABLE audit_log IS 'Audit trail otomatis via trigger: mencatat semua INSERT/UPDATE/DELETE di tabel utama';
+COMMENT ON COLUMN audit_log.table_name IS 'Nama tabel yang diubah';
+COMMENT ON COLUMN audit_log.operation IS 'Operasi: INSERT, UPDATE, atau DELETE';
+COMMENT ON COLUMN audit_log.old_data IS 'Data sebelum perubahan (JSONB), null untuk INSERT';
+COMMENT ON COLUMN audit_log.new_data IS 'Data setelah perubahan (JSONB), null untuk DELETE';
+COMMENT ON COLUMN audit_log.changed_by IS 'User PostgreSQL yang melakukan perubahan';
+
+-- v_ml_features
+COMMENT ON VIEW v_ml_features IS 'Fitur untuk training XGBoost: JOIN OHLC 1m + sentimen 30m (forward-fill) + target vol 5m';
+
+-- data_quality_stats
+COMMENT ON TABLE data_quality_stats IS 'Statistik profiling data quality per tabel per kolom';
+COMMENT ON COLUMN data_quality_stats.null_count IS 'Jumlah null values dalam kolom';
+COMMENT ON COLUMN data_quality_stats.null_percent IS 'Persentase null values';
+COMMENT ON COLUMN data_quality_stats.distinct_count IS 'Jumlah nilai unik dalam kolom';
+COMMENT ON COLUMN data_quality_stats.type_mismatch IS 'Jumlah nilai yang gagal konversi tipe data';
+
+-- table_metadata
+COMMENT ON TABLE table_metadata IS 'Metadata terpusat: deskripsi, owner, sensitivity, frekuensi refresh tiap tabel';
+COMMENT ON COLUMN table_metadata.sensitivity IS 'Klasifikasi sensitivitas: public, internal, confidential, restricted';
+
+-- business_glossary
+COMMENT ON TABLE business_glossary IS 'Business glossary: istilah bisnis yang dipetakan ke tabel/kolom teknis';
+
+-- ─── column_lineage ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS column_lineage (
+    id                 BIGSERIAL PRIMARY KEY,
+    source_table       VARCHAR(50) NOT NULL,
+    source_column      VARCHAR(50) NOT NULL,
+    target_table       VARCHAR(50) NOT NULL,
+    target_column      VARCHAR(50) NOT NULL,
+    transformation     TEXT,
+    pipeline_name      VARCHAR(50),
+    created_at         TIMESTAMPTZ DEFAULT NOW()
+);
+
+INSERT INTO column_lineage (source_table, source_column, target_table, target_column, transformation, pipeline_name) VALUES
+-- Spark Streaming: Kafka trades → OHLC
+('btc_ticker_raw', 'price',     'btc_ohlc_1m', 'open',      'FIRST in 1m tumbling window', 'spark_streaming'),
+('btc_ticker_raw', 'price',     'btc_ohlc_1m', 'high',      'MAX in 1m tumbling window', 'spark_streaming'),
+('btc_ticker_raw', 'price',     'btc_ohlc_1m', 'low',       'MIN in 1m tumbling window', 'spark_streaming'),
+('btc_ticker_raw', 'price',     'btc_ohlc_1m', 'close',     'LAST in 1m tumbling window', 'spark_streaming'),
+('btc_ticker_raw', 'quantity',  'btc_ohlc_1m', 'volume',    'SUM in 1m tumbling window', 'spark_streaming'),
+('btc_ticker_raw', 'price',     'btc_ohlc_1m', 'trade_count','COUNT in 1m tumbling window', 'spark_streaming'),
+('btc_ticker_raw', 'price',     'btc_ohlc_1m', 'volatility','stddev(log-returns) in 1m window', 'spark_streaming'),
+
+-- Spark Streaming: OHLC features → volatility_pred
+('btc_ohlc_1m', 'close',    'volatility_pred', 'rolling_vol_5m',       'rolling stddev(close.pct_change(), 5)', 'spark_streaming'),
+('btc_ohlc_1m', 'high',     'volatility_pred', 'price_range_ratio',    '(high - low) / close', 'spark_streaming'),
+('btc_ohlc_1m', 'low',      'volatility_pred', 'price_range_ratio',    '(high - low) / close', 'spark_streaming'),
+('btc_ohlc_1m', 'volume',   'volatility_pred', 'vol_ratio',            'volume / avg_volume_10min', 'spark_streaming'),
+('sentiment_30m', 'compound_score',  'volatility_pred', 'compound_score',          'sentiment cache (refresh 30m)', 'spark_streaming'),
+('sentiment_30m', 'positive_ratio',  'volatility_pred', 'positive_ratio',          'sentiment cache (refresh 30m)', 'spark_streaming'),
+('sentiment_30m', 'tweet_count',     'volatility_pred', 'tweet_count',             'sentiment cache (refresh 30m)', 'spark_streaming'),
+('sentiment_30m', 'window_start',    'volatility_pred', 'minutes_since_sentiment', 'NOW - window_start (minutes)', 'spark_streaming'),
+
+-- XGBoost inference: all features → prediction
+('volatility_pred', 'rolling_vol_5m',          'volatility_pred', 'predicted_vol_5m', 'XGBoost Regressor (7 features → volatility)', 'spark_streaming'),
+('volatility_pred', 'price_range_ratio',       'volatility_pred', 'predicted_vol_5m', 'XGBoost Regressor (7 features → volatility)', 'spark_streaming'),
+('volatility_pred', 'vol_ratio',               'volatility_pred', 'predicted_vol_5m', 'XGBoost Regressor (7 features → volatility)', 'spark_streaming'),
+('volatility_pred', 'compound_score',          'volatility_pred', 'predicted_vol_5m', 'XGBoost Regressor (7 features → volatility)', 'spark_streaming'),
+('volatility_pred', 'positive_ratio',          'volatility_pred', 'predicted_vol_5m', 'XGBoost Regressor (7 features → volatility)', 'spark_streaming'),
+('volatility_pred', 'tweet_count',             'volatility_pred', 'predicted_vol_5m', 'XGBoost Regressor (7 features → volatility)', 'spark_streaming'),
+('volatility_pred', 'minutes_since_sentiment', 'volatility_pred', 'predicted_vol_5m', 'XGBoost Regressor (7 features → volatility)', 'spark_streaming'),
+
+-- Sentiment pipeline: tweets → sentiment_30m
+('tweets', 'full_text', 'sentiment_30m', 'compound_score',    'FinVADER compound sentiment [-1, 1]', 'sentiment_pipeline'),
+('tweets', 'full_text', 'sentiment_30m', 'positive_ratio',    'COUNT(compound > 0.05) / total', 'sentiment_pipeline'),
+('tweets', 'full_text', 'sentiment_30m', 'negative_ratio',    'COUNT(compound < -0.05) / total', 'sentiment_pipeline'),
+('tweets', 'full_text', 'sentiment_30m', 'neutral_ratio',     '1 - positive_ratio - negative_ratio', 'sentiment_pipeline'),
+('tweets', 'full_text', 'sentiment_30m', 'weighted_compound', 'compound × like_count / SUM(like_count)', 'sentiment_pipeline'),
+('tweets', 'id_str',    'sentiment_30m', 'tweet_count',       'COUNT DISTINCT after dedup', 'sentiment_pipeline'),
+
+-- Training flow: v_ml_features → MLflow model
+('v_ml_features', 'rolling_vol_5m',          'mlflow', 'btc_volatility_xgb', 'XGBoost training feature 1/7', 'model_training'),
+('v_ml_features', 'price_range_ratio',       'mlflow', 'btc_volatility_xgb', 'XGBoost training feature 2/7', 'model_training'),
+('v_ml_features', 'vol_ratio',               'mlflow', 'btc_volatility_xgb', 'XGBoost training feature 3/7', 'model_training'),
+('v_ml_features', 'compound_score',          'mlflow', 'btc_volatility_xgb', 'XGBoost training feature 4/7', 'model_training'),
+('v_ml_features', 'positive_ratio',          'mlflow', 'btc_volatility_xgb', 'XGBoost training feature 5/7', 'model_training'),
+('v_ml_features', 'tweet_count',             'mlflow', 'btc_volatility_xgb', 'XGBoost training feature 6/7', 'model_training'),
+('v_ml_features', 'minutes_since_sentiment', 'mlflow', 'btc_volatility_xgb', 'XGBoost training feature 7/7', 'model_training'),
+
+-- DQ profiling: source columns → data_quality_stats
+('btc_ohlc_1m',     '*', 'data_quality_stats', 'null_count',     'COUNT rows WHERE column IS NULL', 'data_quality_check'),
+('btc_ohlc_1m',     '*', 'data_quality_stats', 'distinct_count', 'COUNT DISTINCT column values', 'data_quality_check'),
+('btc_ohlc_1m',     '*', 'data_quality_stats', 'min_value',      'MIN of numeric column', 'data_quality_check'),
+('btc_ohlc_1m',     '*', 'data_quality_stats', 'max_value',      'MAX of numeric column', 'data_quality_check'),
+('btc_ohlc_1m',     '*', 'data_quality_stats', 'mean_value',     'AVG of numeric column', 'data_quality_check'),
+('sentiment_30m',   '*', 'data_quality_stats', 'null_count',     'COUNT rows WHERE column IS NULL', 'data_quality_check'),
+('sentiment_30m',   '*', 'data_quality_stats', 'distinct_count', 'COUNT DISTINCT column values', 'data_quality_check'),
+('sentiment_30m',   '*', 'data_quality_stats', 'min_value',      'MIN of numeric column', 'data_quality_check'),
+('sentiment_30m',   '*', 'data_quality_stats', 'max_value',      'MAX of numeric column', 'data_quality_check'),
+('sentiment_30m',   '*', 'data_quality_stats', 'mean_value',     'AVG of numeric column', 'data_quality_check'),
+('volatility_pred', '*', 'data_quality_stats', 'null_count',     'COUNT rows WHERE column IS NULL', 'data_quality_check'),
+('volatility_pred', '*', 'data_quality_stats', 'distinct_count', 'COUNT DISTINCT column values', 'data_quality_check'),
+('volatility_pred', '*', 'data_quality_stats', 'min_value',      'MIN of numeric column', 'data_quality_check'),
+('volatility_pred', '*', 'data_quality_stats', 'max_value',      'MAX of numeric column', 'data_quality_check'),
+('volatility_pred', '*', 'data_quality_stats', 'mean_value',     'AVG of numeric column', 'data_quality_check')
+ON CONFLICT DO NOTHING;
+
+CREATE INDEX IF NOT EXISTS idx_cl_target ON column_lineage (target_table, target_column);
+
+-- ─── model_performance ───────────────────────────────────────
+CREATE TABLE IF NOT EXISTS model_performance (
+    id              BIGSERIAL PRIMARY KEY,
+    model_version   VARCHAR(20) NOT NULL,
+    window_start    TIMESTAMPTZ NOT NULL,
+    window_end      TIMESTAMPTZ NOT NULL,
+    rmse            NUMERIC(10,8),
+    mae             NUMERIC(10,8),
+    n_predictions   INTEGER,
+    checked_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_mp_checked ON model_performance (checked_at DESC);
+
+-- ─── app_logs ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS app_logs (
+    id          BIGSERIAL PRIMARY KEY,
+    timestamp   TIMESTAMPTZ DEFAULT NOW(),
+    service     VARCHAR(50) NOT NULL,
+    level       VARCHAR(10) NOT NULL CHECK (level IN ('DEBUG','INFO','WARNING','ERROR','CRITICAL')),
+    message     TEXT NOT NULL,
+    run_id      UUID,
+    extra       JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_logs_ts ON app_logs (timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_logs_svc ON app_logs (service, level);
+
+GRANT SELECT ON btc_ohlc_1m, sentiment_30m, volatility_pred, btc_predictions, pipeline_lineage, audit_log, data_quality_stats, table_metadata, business_glossary, column_lineage, model_performance, app_logs TO dashboard_reader;
+
+-- ─── Grant kelompok4_ipbd (full write access untuk pipeline & Trino) ────
+GRANT USAGE ON SCHEMA public TO kelompok4_ipbd;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO kelompok4_ipbd;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO kelompok4_ipbd;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO kelompok4_ipbd;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO kelompok4_ipbd;
+
+-- ─── Grant marquez db owner untuk Flyway DDL ─────────────────
+-- (dijalankan di create_multiple_db.sh, diulangi di sini untuk safety)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'marquez') THEN
+    CREATE ROLE marquez WITH LOGIN PASSWORD 'k4ipbd_marquez_2026';
+  END IF;
+END$$;
+GRANT ALL PRIVILEGES ON DATABASE marquezdb TO marquez;

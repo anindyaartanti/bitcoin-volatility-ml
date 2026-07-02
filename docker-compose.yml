@@ -34,10 +34,13 @@ x-prefect-common: &prefect-common
     # Telegram
     TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
     TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+    # Marquez / OpenLineage
+    OPENLINEAGE_URL: http://marquez-api:5000
   volumes:
     - ./prefect/flows:/opt/prefect/flows
     - ./processing:/opt/processing
     - ./ingestion:/opt/ingestion
+    - ./governance/great_expectations:/opt/prefect/ge:ro
   networks:
     - bigdata_net
 
@@ -235,8 +238,14 @@ services:
       start_period: 20s
 
   spark-worker:
-    <<: *spark-common
+    build:
+      context: ./processing
+      dockerfile: Dockerfile
+    image: bitcoin-volatility-ml-spark-worker:latest
     container_name: spark-worker
+    user: root
+    networks:
+      - bigdata_net
     environment:
       <<: *spark-common-env
       SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-2g}
@@ -334,6 +343,12 @@ services:
       - ./trino/config.properties:/etc/trino/config.properties:ro
       - ./trino/catalog/postgresql.properties:/etc/trino/catalog/postgresql.properties:ro
       - ./trino/catalog/hive.properties:/etc/trino/catalog/hive.properties:ro
+    environment:
+      TRINO_PG_HOST: ${TRINO_PG_HOST}
+      TRINO_PG_PORT: ${TRINO_PG_PORT}
+      TRINO_PG_DB: ${TRINO_PG_DB}
+      TRINO_PG_USER: ${TRINO_PG_USER}
+      TRINO_PG_PASSWORD: ${TRINO_PG_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy
@@ -383,6 +398,69 @@ services:
       timeout: 10s
       retries: 5
       start_period: 20s
+
+  # ─────────────────────────────────────────
+  # MARQUEZ API (data lineage collection)
+  # ─────────────────────────────────────────
+  marquez-api:
+    image: marquezproject/marquez:0.51.1
+    container_name: marquez-api
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      SEARCH_ENABLED: "false"
+    ports:
+      - "5002:5000"
+      - "5003:5001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bigdata_net
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────
+  # MARQUEZ WEB UI
+  # ─────────────────────────────────────────
+  marquez-web:
+    image: marquezproject/marquez-web:0.51.1
+    container_name: marquez-web
+    environment:
+      MARQUEZ_HOST: marquez-api
+      MARQUEZ_PORT: "5000"
+      WEB_PORT: "3000"
+    ports:
+      - "3002:3000"
+    depends_on:
+      - marquez-api
+    networks:
+      - bigdata_net
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────
+  # TELEGRAF (system metrics → PostgreSQL)
+  # ─────────────────────────────────────────
+  telegraf:
+    build:
+      context: ./monitoring/telegraf
+      dockerfile: Dockerfile
+    container_name: telegraf
+    user: telegraf:998  # docker group GID on host
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB_APP}
+    volumes:
+      - ./monitoring/telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bigdata_net
+    restart: unless-stopped
 
   # ─────────────────────────────────────────
   # PREFECT SERVER (API + UI)
@@ -442,6 +520,12 @@ services:
     <<: *prefect-common
     container_name: prefect-worker
     command: prefect worker start --pool default
+    volumes:
+      - ./prefect/flows:/opt/prefect/flows
+      - ./processing:/opt/processing
+      - ./ingestion:/opt/ingestion
+      - ./governance/great_expectations:/opt/prefect/ge:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       prefect-init:
         condition: service_completed_successfully
@@ -567,8 +651,8 @@ services:
       context: ./dashboard
       dockerfile: Dockerfile
     container_name: dashboard
-    expose:
-      - "8501"
+    ports:
+      - "8501:8501"
     environment:
       # PostgreSQL (data real-time)
       PG_HOST: postgres

@@ -1,0 +1,30 @@
+config_version: 3.0
+
+datasources:
+  postgres_btcdb:
+    class_name: Datasource
+    execution_engine:
+      class_name: SqlAlchemyExecutionEngine
+      connection_string: "postgresql+psycopg2://kelompok4_ipbd:k4ipbd_postgres_2026@postgres:5432/btcdb"
+    data_connectors:
+      default_runtime_data_connector:
+        class_name: RuntimeDataConnector
+        batch_identifiers:
+          - default_identifier_name
+
+stores:
+  expectations_store:
+    class_name: ExpectationsStore
+    store_backend:
+      class_name: TupleFilesystemStoreBackend
+      base_directory: /opt/prefect/ge/expectations
+  validations_store:
+    class_name: ValidationsStore
+    store_backend:
+      class_name: TupleFilesystemStoreBackend
+      base_directory: /opt/prefect/ge/validations
+  evaluation_parameter_store:
+    class_name: EvaluationParameterStore
+
+anonymous_usage_statistics:
+  enabled: false

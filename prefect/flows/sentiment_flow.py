@@ -22,7 +22,6 @@ import pybreaker
 import requests
 from prefect import flow, task
 from prefect.client.schemas.schedules import IntervalSchedule
-
 logger = logging.getLogger("sentiment_flow")
 
 # ─── Env ─────────────────────────────────────────────────────
@@ -345,7 +344,6 @@ def _handle_failure(run_id: str, window_start: datetime, error: str):
 def sentiment_pipeline():
     import uuid
     now = datetime.now(tz=timezone.utc)
-    # Round down ke 30 menit terdekat
     window_start = now.replace(
         minute=(now.minute // 30) * 30, second=0, microsecond=0
     )

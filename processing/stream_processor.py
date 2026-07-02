@@ -24,7 +24,6 @@ import numpy as np
 import pybreaker
 import requests
 from confluent_kafka import Producer
-from cryptography.fernet import Fernet
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
@@ -76,10 +75,12 @@ def decrypt_udf(encrypted_bytes):
     """Decrypt Kafka message value encrypted with Fernet (AES-128-CBC + HMAC)."""
     if encrypted_bytes is None:
         return None
-    if not ENCRYPTION_KEY:
+    _key = os.environ.get("ENCRYPTION_KEY", "")
+    if not _key:
         return encrypted_bytes.decode("utf-8", errors="replace")
     try:
-        return Fernet(ENCRYPTION_KEY.encode()).decrypt(
+        from cryptography.fernet import Fernet as _Fernet
+        return _Fernet(_key.encode()).decrypt(
             bytes(encrypted_bytes)
         ).decode("utf-8")
     except Exception:
@@ -270,12 +271,11 @@ def load_model_and_scaler():
 def start_model_refresh_thread():
     def _loop():
         while True:
-            model, _, _ = _INFERENCE_ARTIFACTS or (None, None, None)
-            if model is None:
-                logger.info("Periodic reload: mencoba load model dari MLflow...")
-                ok = load_model_and_scaler()
-                if ok:
-                    logger.info("Periodic reload: model berhasil di-load, inference siap.")
+            logger.info("Periodic reload: mencoba load model dari MLflow...")
+            ok = load_model_and_scaler()
+            if ok:
+                _, _, version = _INFERENCE_ARTIFACTS or (None, None, None)
+                logger.info("Periodic reload: model v%s loaded", version)
             time.sleep(300)
 
     t = threading.Thread(target=_loop, daemon=True)

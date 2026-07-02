@@ -1,5 +1,7 @@
 import re
-with open(r'E:\3-IPBD\Tugas\project\bitcoin-volatility-ml\dashboard\app.py', encoding='utf-8') as f:
+from pathlib import Path
+dashboard = Path(__file__).parent.parent / 'dashboard' / 'app.py'
+with open(dashboard, encoding='utf-8') as f:
     content = f.read()
 keys = re.findall(r"""key=["'](\w+)["']""", content)
 counts = {}
