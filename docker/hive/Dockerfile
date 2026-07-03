@@ -1,16 +1,10 @@
-# docker/hive/Dockerfile
-FROM apache/hive:3.1.3
+FROM bitsondatadev/hive-metastore:latest
 
-USER root
+ENV PG_JDBC_VERSION=42.7.1
 
-RUN apt-get update -qq && \
-    apt-get install -y --no-install-recommends wget && \
-    rm -rf /var/lib/apt/lists/* && \
-    wget -q \
-      https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/2.10.2/hadoop-aws-2.10.2.jar \
-      -O /opt/hive/lib/hadoop-aws-2.10.2.jar && \
-    wget -q \
-      https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.262/aws-java-sdk-bundle-1.12.262.jar \
-      -O /opt/hive/lib/aws-java-sdk-bundle-1.12.262.jar
+RUN curl -fsSL -o /opt/apache-hive-metastore-3.0.0-bin/lib/postgresql-jdbc.jar \
+    "https://jdbc.postgresql.org/download/postgresql-${PG_JDBC_VERSION}.jar"
 
-USER hive
+COPY hive/hive-site.xml /opt/apache-hive-metastore-3.0.0-bin/conf/
+
+COPY --chmod=0755 docker/hive/entrypoint.sh /entrypoint.sh

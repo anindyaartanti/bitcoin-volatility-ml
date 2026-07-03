@@ -1,14 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
-<!--
-  hive/hive-site.xml
-  Konfigurasi Hive Metastore:
-  - Backend: PostgreSQL (database metastoredb)
-  - Warehouse: MinIO bucket hive-warehouse
--->
+
 <configuration>
 
-  <!-- ─── PostgreSQL Backend ──────────────────────────────── -->
+  
   <property>
     <name>javax.jdo.option.ConnectionURL</name>
     <value>jdbc:postgresql://postgres:5432/metastoredb</value>
@@ -22,15 +17,15 @@
 
   <property>
     <name>javax.jdo.option.ConnectionUserName</name>
-    <value>btcadmin</value>
+    <value>kelompok4_ipbd</value>
   </property>
 
   <property>
     <name>javax.jdo.option.ConnectionPassword</name>
-    <value>gantiPasswordAman123</value>
+    <value>k4ipbd_postgres_2026</value>
   </property>
 
-  <!-- Auto-create schema di PostgreSQL jika belum ada -->
+  
   <property>
     <name>datanucleus.schema.autoCreateSchema</name>
     <value>true</value>
@@ -41,20 +36,20 @@
     <value>true</value>
   </property>
 
-  <!-- ─── Warehouse Location (MinIO) ──────────────────────── -->
+  
   <property>
     <name>hive.metastore.warehouse.dir</name>
     <value>s3a://hive-warehouse/</value>
     <description>Lokasi default warehouse di MinIO</description>
   </property>
 
-  <!-- ─── Thrift Server ───────────────────────────────────── -->
+  
   <property>
     <name>hive.metastore.uris</name>
     <value>thrift://hive-metastore:9083</value>
   </property>
 
-  <!-- min harus < max, dan max harus eksplisit lebih besar dari min -->
+  
   <property>
     <name>hive.metastore.server.min.threads</name>
     <value>10</value>
@@ -65,13 +60,13 @@
     <value>100</value>
   </property>
 
-  <!-- Port Thrift eksplisit -->
+  
   <property>
     <name>hive.metastore.port</name>
     <value>9083</value>
   </property>
 
-  <!-- ─── S3A / MinIO Config ──────────────────────────────── -->
+  
   <property>
     <name>fs.s3a.endpoint</name>
     <value>http://minio:9000</value>
@@ -102,7 +97,7 @@
     <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
   </property>
 
-  <!-- ─── Metastore event listener (opsional) ─────────────── -->
+  
   <property>
     <name>hive.metastore.event.db.notification.api.auth</name>
     <value>false</value>

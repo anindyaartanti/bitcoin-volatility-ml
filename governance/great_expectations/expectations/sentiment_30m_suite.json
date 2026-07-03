@@ -1,0 +1,133 @@
+{
+  "expectation_suite_name": "sentiment_30m_suite",
+  "ge_cloud_id": null,
+  "expectations": [
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "window_start",
+        "mostly": 1.0
+      },
+      "meta": {
+        "severity": "critical"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "compound_score",
+        "mostly": 1.0
+      },
+      "meta": {
+        "severity": "critical"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "compound_score",
+        "min_value": -1.0,
+        "max_value": 1.0
+      },
+      "meta": {
+        "severity": "critical"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "positive_ratio",
+        "min_value": 0.0,
+        "max_value": 1.0
+      },
+      "meta": {
+        "severity": "warning"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "negative_ratio",
+        "min_value": 0.0,
+        "max_value": 1.0
+      },
+      "meta": {
+        "severity": "warning"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "neutral_ratio",
+        "min_value": 0.0,
+        "max_value": 1.0
+      },
+      "meta": {
+        "severity": "warning"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "tweet_count",
+        "min_value": 0
+      },
+      "meta": {
+        "severity": "warning"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_in_set",
+      "kwargs": {
+        "column": "data_quality",
+        "value_set": ["ok", "low_sample", "stale"]
+      },
+      "meta": {
+        "severity": "critical"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "data_quality",
+        "mostly": 1.0
+      },
+      "meta": {
+        "severity": "critical"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "weighted_compound",
+        "min_value": -1.0,
+        "max_value": 1.0
+      },
+      "meta": {
+        "severity": "warning"
+      }
+    },
+    {
+      "expectation_type": "expect_compound_columns_to_be_unique",
+      "kwargs": {
+        "column_list": ["window_start"]
+      },
+      "meta": {
+        "severity": "critical"
+      }
+    },
+    {
+      "expectation_type": "expect_table_row_count_to_be_between",
+      "kwargs": {
+        "min_value": 1
+      },
+      "meta": {
+        "severity": "warning"
+      }
+    }
+  ],
+  "meta": {
+    "great_expectations_version": "1.0.0",
+    "notes": "Validasi data sentimen 30 menit: range [-1,1], valueset, uniqueness"
+  }
+}

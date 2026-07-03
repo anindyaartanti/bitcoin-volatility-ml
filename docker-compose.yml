@@ -1,47 +1,50 @@
 version: "3.8"
 
-# =============================================================
-# Bitcoin Volatility ML - Docker Compose
-# Fase 2: +Spark Master/Worker, MLflow, Hive Metastore, Trino, Grafana
-# =============================================================
 
-x-airflow-common: &airflow-common
-  image: apache/airflow:2.8.1-python3.11
-  environment: &airflow-common-env
-    AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB_AIRFLOW}
-    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
-    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
-    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
-    # MinIO / S3
+
+
+
+
+x-prefect-common: &prefect-common
+  build:
+    context: ./prefect
+    dockerfile: Dockerfile
+  environment: &prefect-common-env
+    PREFECT_API_URL: http://prefect-server:4200/api
+
     MINIO_ENDPOINT: http://minio:9000
     MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
     MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-    # PostgreSQL aplikasi
+
+    PGBOUNCER_HOST: pgbouncer
+    PGBOUNCER_PORT: "6432"
     APP_DB_HOST: postgres
     APP_DB_PORT: 5432
     APP_DB_NAME: ${POSTGRES_DB_APP}
     APP_DB_USER: ${POSTGRES_USER}
     APP_DB_PASSWORD: ${POSTGRES_PASSWORD}
-    # MLflow
+
     MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
-    # Spark
-    SPARK_MASTER_URL: ${SPARK_MASTER_URL}
+    MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+    AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
+
+    TWITTER_AUTH_TOKEN: ${TWITTER_AUTH_TOKEN}
+    TWITTER_SCRAPE_LIMIT: ${TWITTER_SCRAPE_LIMIT:-200}
+
+    TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+    TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+
+    OPENLINEAGE_URL: http://marquez-api:5000
   volumes:
-    - ./airflow/dags:/opt/airflow/dags
-    - ./airflow/plugins:/opt/airflow/plugins
-    - ./ingestion:/opt/airflow/ingestion
-    - ./processing:/opt/airflow/processing
-    - ./ml:/opt/airflow/ml
-    - airflow_logs:/opt/airflow/logs
-  depends_on:
-    postgres:
-      condition: service_healthy
+    - ./prefect/flows:/opt/prefect/flows
+    - ./processing:/opt/processing
+    - ./ingestion:/opt/ingestion
+    - ./governance/great_expectations:/opt/prefect/ge:ro
   networks:
     - bigdata_net
 
-# ── Spark image reusable ──────────────────────────────────────
+
 x-spark-common: &spark-common
   image: apache/spark:3.5.1
   user: root
@@ -53,9 +56,9 @@ x-spark-common: &spark-common
 
 services:
 
-  # ─────────────────────────────────────────
-  # ZOOKEEPER
-  # ─────────────────────────────────────────
+
+
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
     container_name: zookeeper
@@ -73,9 +76,9 @@ services:
       timeout: 5s
       retries: 5
 
-  # ─────────────────────────────────────────
-  # KAFKA BROKER
-  # ─────────────────────────────────────────
+
+
+
   kafka:
     image: confluentinc/cp-kafka:7.6.0
     container_name: kafka
@@ -103,9 +106,9 @@ services:
       timeout: 10s
       retries: 5
 
-  # ─────────────────────────────────────────
-  # KAFKA TOPIC INIT (sekali jalan)
-  # ─────────────────────────────────────────
+
+
+
   kafka-init:
     image: confluentinc/cp-kafka:7.6.0
     container_name: kafka-init
@@ -113,26 +116,35 @@ services:
       kafka:
         condition: service_healthy
     entrypoint: ["/bin/bash", "-c"]
-    command: >
-      "
-      kafka-topics --create --if-not-exists
-        --bootstrap-server kafka:29092
-        --topic btc_ticker_raw
-        --partitions 3
-        --replication-factor 1 &&
-      kafka-topics --create --if-not-exists
-        --bootstrap-server kafka:29092
-        --topic volatility_pred
-        --partitions 1
-        --replication-factor 1 &&
-      echo 'Topics created successfully.'
-      "
+    command:
+      - |
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic btc_ticker_raw --partitions 3 --replication-factor 1
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic btc_ticker_dlq --partitions 1 --replication-factor 1
+        kafka-topics --create --if-not-exists --bootstrap-server kafka:29092 --topic volatility_pred --partitions 1 --replication-factor 1
+        echo 'Topics created successfully.'
     networks:
       - bigdata_net
 
-  # ─────────────────────────────────────────
-  # POSTGRESQL
-  # ─────────────────────────────────────────
+
+
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8083:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - bigdata_net
+
+
+
+
   postgres:
     image: postgres:15-alpine
     container_name: postgres
@@ -151,14 +163,14 @@ services:
     networks:
       - bigdata_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} && psql -U ${POSTGRES_USER} -d prefectdb -c 'SELECT 1' > /dev/null 2>&1"]
       interval: 10s
-      timeout: 10s
-      retries: 5
+      timeout: 15s
+      retries: 15
 
-  # ─────────────────────────────────────────
-  # MINIO (Data Lake)
-  # ─────────────────────────────────────────
+
+
+
   minio:
     image: minio/minio:RELEASE.2024-03-21T23-13-43Z
     container_name: minio
@@ -169,8 +181,8 @@ services:
     volumes:
       - minio_data:/data
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9002:9000"
+      - "9003:9001"
     networks:
       - bigdata_net
     healthcheck:
@@ -180,9 +192,9 @@ services:
       retries: 5
       start_period: 30s
 
-  # ─────────────────────────────────────────
-  # MINIO BUCKET INIT (sekali jalan)
-  # ─────────────────────────────────────────
+
+
+
   minio-init:
     image: minio/mc:latest
     container_name: minio-init
@@ -195,16 +207,16 @@ services:
       mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} &&
       mc mb --ignore-existing local/twitter-raw &&
       mc mb --ignore-existing local/mlflow-artifacts &&
-      mc mb --ignore-existing local/spark-checkpoints &&
+      mc mb --ignore-existing local/checkpoints &&
       mc mb --ignore-existing local/hive-warehouse &&
       echo 'Buckets initialized.'
       "
     networks:
       - bigdata_net
 
-  # ─────────────────────────────────────────
-  # SPARK MASTER
-  # ─────────────────────────────────────────
+
+
+
   spark-master:
     <<: *spark-common
     container_name: spark-master
@@ -212,7 +224,7 @@ services:
       <<: *spark-common-env
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
     ports:
-      - "8081:8080"   # Spark Master Web UI
+      - "8081:8080"
       - "7077:7077"
     volumes:
       - ./processing:/opt/spark/jobs
@@ -226,8 +238,14 @@ services:
       start_period: 20s
 
   spark-worker:
-    <<: *spark-common
+    build:
+      context: ./processing
+      dockerfile: Dockerfile
+    image: bitcoin-volatility-ml-spark-worker:latest
     container_name: spark-worker
+    user: root
+    networks:
+      - bigdata_net
     environment:
       <<: *spark-common-env
       SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-2g}
@@ -241,32 +259,27 @@ services:
       - ./ml:/opt/spark/ml
       - spark_worker_logs:/opt/spark/logs
 
-  # ─────────────────────────────────────────
-  # HIVE METASTORE
-  # Menyimpan skema tabel Parquet di MinIO
-  # ─────────────────────────────────────────
+
+
+
+
   hive-metastore:
     build:
-      context: ./docker/hive
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: docker/hive/Dockerfile
+    image: btc-volatility-hive-metastore:latest
     container_name: hive-metastore
     environment:
-      SERVICE_NAME: metastore
-      SKIP_SCHEMA_INIT: "true"
-      # Backend PostgreSQL
-      DB_DRIVER: postgres
-      SERVICE_OPTS: >-
-        -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
-        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres:5432/${HIVE_METASTORE_DB_NAME:-metastoredb}
-        -Djavax.jdo.option.ConnectionUserName=${POSTGRES_USER}
-        -Djavax.jdo.option.ConnectionPassword=${POSTGRES_PASSWORD}
-      # MinIO / S3A
+      METASTORE_DB_HOSTNAME: postgres
+      METASTORE_DB_PORT: 5432
+      METASTORE_DB_NAME: ${HIVE_METASTORE_DB_NAME:-metastoredb}
+      METASTORE_DB_USER: ${POSTGRES_USER}
+      METASTORE_DB_PASS: ${POSTGRES_PASSWORD}
       AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
-    volumes:
-      - ./hive/hive-site.xml:/opt/hive/conf/hive-site.xml:ro
+      S3_ENDPOINT_URL: http://minio:9000
     ports:
-      - "9083:9083"   # Thrift port untuk Trino
+      - "9083:9083"
     depends_on:
       postgres:
         condition: service_healthy
@@ -281,12 +294,14 @@ services:
       retries: 8
       start_period: 90s
 
-  # ─────────────────────────────────────────
-  # MLFLOW
-  # Tracking server + Model Registry
-  # ─────────────────────────────────────────
+
+
+
+
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.10.2
+    build:
+      context: ./ml/mlflow
+      dockerfile: Dockerfile
     container_name: mlflow
     command: >
       mlflow server
@@ -300,7 +315,7 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
     ports:
-      - "5000:5000"
+      - "5001:5000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -315,24 +330,30 @@ services:
       retries: 5
       start_period: 30s
 
-  # ─────────────────────────────────────────
-  # TRINO
-  # Query engine: PostgreSQL + MinIO (Hive)
-  # ─────────────────────────────────────────
+
+
+
+
   trino:
     image: trinodb/trino:438
     container_name: trino
     ports:
-      - "8082:8080"   # Trino Web UI + REST API
+      - "8082:8080"
     volumes:
       - ./trino/config.properties:/etc/trino/config.properties:ro
       - ./trino/catalog/postgresql.properties:/etc/trino/catalog/postgresql.properties:ro
       - ./trino/catalog/hive.properties:/etc/trino/catalog/hive.properties:ro
+    environment:
+      TRINO_PG_HOST: ${TRINO_PG_HOST}
+      TRINO_PG_PORT: ${TRINO_PG_PORT}
+      TRINO_PG_DB: ${TRINO_PG_DB}
+      TRINO_PG_USER: ${TRINO_PG_USER}
+      TRINO_PG_PASSWORD: ${TRINO_PG_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy
       hive-metastore:
-        condition: service_healthy
+        condition: service_started
     networks:
       - bigdata_net
     healthcheck:
@@ -342,28 +363,30 @@ services:
       retries: 8
       start_period: 40s
 
-  # ─────────────────────────────────────────
-  # GRAFANA
-  # Dashboard monitoring + Telegram alerting
-  # ─────────────────────────────────────────
+
+
+
+
   grafana:
     image: grafana/grafana:10.3.3
     container_name: grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-grafana123}
-      GF_SERVER_ROOT_URL: ${GF_SERVER_ROOT_URL:-http://localhost:3000}
-      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
-      # Provisioning otomatis datasource & dashboard
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-k4ipbd_grafana_2026}
+      GF_SERVER_SERVE_FROM_SUB_PATH: "false"
+
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
-      # Disable telemetry
+
       GF_ANALYTICS_REPORTING_ENABLED: "false"
+
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "3000:3000"
+      - "3001:3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -376,59 +399,172 @@ services:
       retries: 5
       start_period: 20s
 
-  # ─────────────────────────────────────────
-  # AIRFLOW WEBSERVER
-  # ─────────────────────────────────────────
-  airflow-webserver:
-    <<: *airflow-common
-    container_name: airflow-webserver
-    command: webserver
+
+
+
+  marquez-api:
+    image: marquezproject/marquez:0.51.1
+    container_name: marquez-api
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      SEARCH_ENABLED: "false"
     ports:
-      - "8080:8080"
+      - "5002:5000"
+      - "5003:5001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bigdata_net
+    restart: unless-stopped
+
+
+
+
+  marquez-web:
+    image: marquezproject/marquez-web:0.51.1
+    container_name: marquez-web
+    environment:
+      MARQUEZ_HOST: marquez-api
+      MARQUEZ_PORT: "5000"
+      WEB_PORT: "3000"
+    ports:
+      - "3002:3000"
+    depends_on:
+      - marquez-api
+    networks:
+      - bigdata_net
+    restart: unless-stopped
+
+
+
+
+  telegraf:
+    build:
+      context: ./monitoring/telegraf
+      dockerfile: Dockerfile
+    container_name: telegraf
+    user: telegraf:998
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB_APP}
+    volumes:
+      - ./monitoring/telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bigdata_net
+    restart: unless-stopped
+
+
+
+
+  prefect-server:
+    build:
+      context: ./prefect
+      dockerfile: Dockerfile
+    container_name: prefect-server
+    command: >
+      prefect server start --host 0.0.0.0 --port 4200
+    environment:
+      PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/prefectdb
+    ports:
+      - "4201:4200"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bigdata_net
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-      interval: 30s
+      test: ["CMD", "curl", "--fail", "http://localhost:4200/api/health"]
+      interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 30s
 
-  # ─────────────────────────────────────────
-  # AIRFLOW SCHEDULER
-  # ─────────────────────────────────────────
-  airflow-scheduler:
-    <<: *airflow-common
-    container_name: airflow-scheduler
-    command: scheduler
-    healthcheck:
-      test: ["CMD", "airflow", "jobs", "check", "--job-type", "SchedulerJob", "--hostname", "$${HOSTNAME}"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
 
-  # ─────────────────────────────────────────
-  # AIRFLOW INIT (migration + admin user)
-  # ─────────────────────────────────────────
-  airflow-init:
-    <<: *airflow-common
-    container_name: airflow-init
+
+
+  prefect-init:
+    <<: *prefect-common
+    container_name: prefect-init
     entrypoint: /bin/bash
     command:
       - -c
       - |
-        pip install minio boto3 pandas pyarrow vaderSentiment great-expectations==0.18.15 trino
-        airflow db migrate
-        airflow users create \
-          --username ${AIRFLOW_ADMIN_USER} \
-          --firstname Admin \
-          --lastname User \
-          --role Admin \
-          --email admin@example.com \
-          --password ${AIRFLOW_ADMIN_PASSWORD}
+        echo "=== Prefect Init ==="
+        while ! curl -sf http://prefect-server:4200/api/health; do
+          echo "Menunggu prefect-server..."
+          sleep 3
+        done
+        prefect work-pool create --type process default 2>/dev/null || true
+        echo "Work pool 'default' ready."
+        python /opt/prefect/flows/deploy_all.py
+        echo "Deployments registered."
+    depends_on:
+      prefect-server:
+        condition: service_healthy
     environment:
-      <<: *airflow-common-env
+      <<: *prefect-common-env
 
-  # ─────────────────────────────────────────
-  # BINANCE PRODUCER (stream ke Kafka)
-  # ─────────────────────────────────────────
+
+
+
+  prefect-worker:
+    <<: *prefect-common
+    container_name: prefect-worker
+    command: prefect worker start --pool default
+    volumes:
+      - ./prefect/flows:/opt/prefect/flows
+      - ./processing:/opt/processing
+      - ./ingestion:/opt/ingestion
+      - ./governance/great_expectations:/opt/prefect/ge:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      prefect-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+
+
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    container_name: pgbouncer
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB_APP}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 100
+      DEFAULT_POOL_SIZE: ${PGBOUNCER_POOL_SIZE:-20}
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    ports:
+      - "6432:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bigdata_net
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "localhost", "-p", "6432", "-U", "${POSTGRES_USER}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+
+
+
   binance-producer:
     build:
       context: ./ingestion
@@ -437,16 +573,131 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_TOPIC: btc_ticker_raw
+      KAFKA_DLQ_TOPIC: btc_ticker_dlq
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+    command: ["python", "binance_producer.py"]
     depends_on:
       kafka:
         condition: service_healthy
     restart: unless-stopped
     networks:
       - bigdata_net
+  
 
-# ─────────────────────────────────────────
-# NETWORKS & VOLUMES
-# ─────────────────────────────────────────
+
+
+  spark-streaming-job:
+    build:
+      context: ./processing
+      dockerfile: Dockerfile
+    container_name: spark-streaming-job
+    user: root
+    environment:
+
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TOPIC: btc_ticker_raw
+      KAFKA_DLQ_TOPIC: btc_ticker_dlq
+      SPARK_MASTER_URL: spark://spark-master:7077
+
+      PGBOUNCER_HOST: pgbouncer
+      PGBOUNCER_PORT: "6432"
+      APP_DB_NAME: ${POSTGRES_DB_APP}
+      APP_DB_USER: ${POSTGRES_USER}
+      APP_DB_PASSWORD: ${POSTGRES_PASSWORD}
+
+      APP_DB_HOST: postgres
+      APP_DB_PORT: "5432"
+
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY}
+
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+    volumes:
+      - ./processing:/opt/spark/jobs
+    entrypoint: ["/bin/bash", "/opt/spark/jobs/entrypoint.sh"]
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - bigdata_net
+
+
+
+
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: dashboard
+    ports:
+      - "8501:8501"
+    environment:
+
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_DB: ${POSTGRES_DB_APP}
+      PG_USER: ${POSTGRES_USER}
+      PG_PASSWORD: ${POSTGRES_PASSWORD}
+
+      TRINO_HOST: trino
+      TRINO_PORT: "8080"
+      TRINO_USER: kelompok4_ipbd
+    depends_on:
+      postgres:
+        condition: service_healthy
+      trino:
+        condition: service_healthy
+    networks:
+      - bigdata_net
+
+
+
+
+
+  nginx:
+    build:
+      context: ./security/nginx
+      dockerfile: Dockerfile
+    container_name: nginx
+    ports:
+      - "8080:80"
+      - "8443:443"
+    environment:
+      NGINX_AUTH_USER: ${NGINX_AUTH_USER:-kelompok4_ipbd}
+      NGINX_AUTH_PASSWORD: ${NGINX_AUTH_PASSWORD:-k4ipbd_nginx_2026}
+    volumes:
+      - ./security/nginx/nginx.crt:/etc/nginx/ssl/nginx.crt:ro
+      - ./security/nginx/nginx.key:/etc/nginx/ssl/nginx.key:ro
+    depends_on:
+      - dashboard
+    networks:
+      - bigdata_net
+
+
+
+
 networks:
   bigdata_net:
     driver: bridge
@@ -457,7 +708,6 @@ volumes:
   kafka_data:
   zookeeper_data:
   zookeeper_logs:
-  airflow_logs:
   spark_logs:
   spark_worker_logs:
   grafana_data:

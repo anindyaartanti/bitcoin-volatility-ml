@@ -1,0 +1,90 @@
+{
+  "expectation_suite_name": "volatility_pred_suite",
+  "ge_cloud_id": null,
+  "expectations": [
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "window_start",
+        "mostly": 1.0
+      },
+      "meta": {
+        "severity": "critical"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "predicted_vol_5m",
+        "mostly": 1.0
+      },
+      "meta": {
+        "severity": "critical"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "predicted_vol_5m",
+        "min_value": 0.0
+      },
+      "meta": {
+        "severity": "critical"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "model_version",
+        "mostly": 1.0
+      },
+      "meta": {
+        "severity": "warning"
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "inference_latency_ms",
+        "min_value": 0
+      },
+      "meta": {
+        "severity": "warning",
+        "mostly": 0.95
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "rolling_vol_5m",
+        "min_value": 0.0
+      },
+      "meta": {
+        "severity": "warning",
+        "mostly": 0.9
+      }
+    },
+    {
+      "expectation_type": "expect_compound_columns_to_be_unique",
+      "kwargs": {
+        "column_list": ["window_start"]
+      },
+      "meta": {
+        "severity": "critical"
+      }
+    },
+    {
+      "expectation_type": "expect_table_row_count_to_be_between",
+      "kwargs": {
+        "min_value": 1
+      },
+      "meta": {
+        "severity": "warning"
+      }
+    }
+  ],
+  "meta": {
+    "great_expectations_version": "1.0.0",
+    "notes": "Validasi hasil prediksi: nilai >= 0, model_version not null, latency > 0, uniqueness"
+  }
+}
