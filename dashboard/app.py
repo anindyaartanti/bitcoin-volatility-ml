@@ -15,7 +15,6 @@ import log_explorer as logexp
 
 st.set_page_config(layout="wide", page_title=DASHBOARD_TITLE)
 
-# ─── Custom CSS ──────────────────────────────────────────────
 st.markdown("""
 <style>
     .block-container { padding-top: 1.5rem; padding-bottom: 1rem; }
@@ -48,7 +47,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ─── Theme helper ──────────────────────────────────────────────
 def _apply_theme(fig, x_title=None, y_title=None, legend=True, height=280, hover="x unified"):
     fig.update_layout(
         paper_bgcolor="#0f131b", plot_bgcolor="#0f131b",
@@ -61,7 +59,6 @@ def _apply_theme(fig, x_title=None, y_title=None, legend=True, height=280, hover
     )
 
 
-# ─── Sidebar ─────────────────────────────────────────────────
 with st.sidebar:
     st.markdown(f'<div class="sidebar-section"><span style="color:#9ba3af;font-size:0.75rem">BITCOIN VOLATILITY ML</span><br><span style="color:#f0f2f6;font-weight:600">{datetime.now():%H:%M:%S} UTC</span></div>', unsafe_allow_html=True)
 
@@ -84,9 +81,6 @@ Kelompok 4 — IPBD 2026
 st.title(DASHBOARD_TITLE)
 
 
-# ═══════════════════════════════════════════════════════════════
-# PAGE 0: Summary (Home)
-# ═══════════════════════════════════════════════════════════════
 def page_summary():
     ohlc = pd.DataFrame()
     sentiment = pd.DataFrame()
@@ -132,7 +126,7 @@ def page_summary():
     sent_val = sentiment["compound_score"].iloc[0] if not sentiment.empty else None
     pred_cnt = int(pred["cnt"].iloc[0]) if not pred.empty else 0
 
-    # ── Row 1: 4 large KPI cards ──────────────────────────────
+
     c1, c2, c3, c4 = st.columns(4)
     if btc_price is not None:
         pc_color = "#00d4aa" if (btc_change or 0) >= 0 else "#ff4b4b"
@@ -167,7 +161,7 @@ def page_summary():
     else:
         c4.markdown('<div class="card-compact"><div class="label">System</div><div class="value">--</div></div>', unsafe_allow_html=True)
 
-    # ── Row 2: Mini charts ────────────────────────────────────
+
     col_l, col_m, col_r = st.columns(3)
     with col_l:
         if not ohlc.empty and len(ohlc) > 2:
@@ -206,7 +200,7 @@ def page_summary():
         else:
             st.info("Model perf data belum tersedia")
 
-    # ── Row 3: Recent alerts ──────────────────────────────────
+
     st.divider()
     st.markdown('<div style="color:#f0f2f6;font-weight:600;margin-bottom:0.5rem">Recent Alerts</div>', unsafe_allow_html=True)
     if not recent_alerts.empty:
@@ -226,9 +220,6 @@ def page_summary():
         st.success("No recent alerts.")
 
 
-# ═══════════════════════════════════════════════════════════════
-# PAGE 1: Market Overview
-# ═══════════════════════════════════════════════════════════════
 def page_overview():
     ohlc = pd.DataFrame()
     hourly = pd.DataFrame()
@@ -272,7 +263,7 @@ def page_overview():
     total_trades = ohlc["trade_count"].sum() if not ohlc.empty else 0
     vol_latest = ohlc["volatility"].iloc[-1] if not ohlc.empty and ohlc["volatility"].notna().any() else None
 
-    # ── Row 1: 6 KPI cards ──────────────────────────────────────
+
     k1, k2, k3 = st.columns(3)
     if not ohlc.empty:
         lp = ohlc["close"].iloc[-1]
@@ -316,7 +307,7 @@ def page_overview():
         unsafe_allow_html=True,
     )
 
-    # ── Row 2: Candlestick + Volume bar ─────────────────────────
+
     col_l, col_r = st.columns([2, 1])
     with col_l:
         if not ohlc.empty and ohlc["open"].notna().any():
@@ -348,7 +339,7 @@ def page_overview():
         else:
             st.info("Volume data tidak tersedia")
 
-    # ── Row 3: Volatility timeseries + Price histogram ──────────
+
     col_l2, col_r2 = st.columns(2)
     with col_l2:
         if not ohlc.empty and ohlc["volatility"].notna().any():
@@ -377,9 +368,6 @@ def page_overview():
             st.info("Histogram tidak tersedia")
 
 
-# ═══════════════════════════════════════════════════════════════
-# PAGE 2: Volatility Analytics
-# ═══════════════════════════════════════════════════════════════
 def page_model():
     preds = pd.DataFrame()
     features = pd.DataFrame()
@@ -434,7 +422,7 @@ def page_model():
     latest_model = models["model_version"].iloc[0] if not models.empty else "—"
     total_inf = len(preds)
 
-    # ── Row 1: 4 KPI cards ──────────────────────────────────────
+
     c1, c2, c3, c4 = st.columns(4)
     c1.markdown(
         f'<div class="card-compact"><div class="label">Mean Pred Vol 7d</div>'
@@ -459,7 +447,7 @@ def page_model():
         unsafe_allow_html=True,
     )
 
-    # ── Row 2: Predicted volatility + Feature means ─────────────
+
     col_l, col_r = st.columns(2)
     with col_l:
         if not preds.empty:
@@ -487,7 +475,7 @@ def page_model():
         else:
             st.info("Feature data belum tersedia")
 
-    # ── Row 3: Volume-Volatility scatter + Box plot ─────────────
+
     col_l2, col_r2 = st.columns(2)
     with col_l2:
         if not scatter.empty:
@@ -516,7 +504,7 @@ def page_model():
         else:
             st.info("Box plot data belum tersedia")
 
-    # ── Row 4: Predicted vs Actual + Residuals ────────────────
+
     st.divider()
     st.markdown('<div style="color:#f0f2f6;font-weight:600;margin-bottom:0.5rem">Model Prediction Accuracy</div>', unsafe_allow_html=True)
 
@@ -554,7 +542,7 @@ def page_model():
     else:
         st.info("Predicted vs Actual data belum tersedia. Butuh data actual_vol dari model-performance-check.")
 
-    # ── Row 5: Model performance metrics ──────────────────────
+
     if perf_latest:
         col_m1, col_m2, col_m3 = st.columns(3)
         col_m1.markdown(
@@ -587,9 +575,6 @@ def page_model():
         st.plotly_chart(fig, use_container_width=True, key="perf_history")
 
 
-# ═══════════════════════════════════════════════════════════════
-# PAGE 3: Sentiment Analytics
-# ═══════════════════════════════════════════════════════════════
 def page_cross_source():
     sentiment = pd.DataFrame()
     latest = pd.Series(dtype="float64")
@@ -619,7 +604,7 @@ def page_cross_source():
     total_tweets = int(sentiment["tweet_count"].sum()) if not sentiment.empty else 0
     dq = latest.get("data_quality", "—") if not latest.empty else "—"
 
-    # ── Row 1: 4 KPI cards ──────────────────────────────────────
+
     c1, c2, c3, c4 = st.columns(4)
     if compound is not None:
         sc = "#00d4aa" if compound > 0.05 else "#ffc107" if compound > -0.05 else "#ff4b4b"
@@ -648,7 +633,7 @@ def page_cross_source():
         unsafe_allow_html=True,
     )
 
-    # ── Row 2: Sentiment timeseries + Donut ─────────────────────
+
     col_l, col_r = st.columns(2)
     with col_l:
         if not sentiment.empty:
@@ -686,7 +671,7 @@ def page_cross_source():
         else:
             st.info("Data donut belum tersedia")
 
-    # ── Row 3: Tweet volume + Weighted vs Unweighted ────────────
+
     col_l2, col_r2 = st.columns(2)
     with col_l2:
         if not sentiment.empty:
@@ -718,7 +703,7 @@ def page_cross_source():
         else:
             st.info("Weighted comparison belum tersedia")
 
-    # ── Row 4: Trino Federated Query (existing) ─────────────────
+
     st.divider()
     st.markdown(
         '<div style="color:#9ba3af;font-size:0.85rem;margin-bottom:0.5rem">'
@@ -780,9 +765,6 @@ def page_cross_source():
                     st.error(f"Query error: {e}")
 
 
-# ═══════════════════════════════════════════════════════════════
-# PAGE 4: Pipeline Operations
-# ═══════════════════════════════════════════════════════════════
 def page_lineage():
     lineage = pd.DataFrame()
     pstats = pd.DataFrame()
@@ -820,7 +802,7 @@ def page_lineage():
     n_pipelines = len(pstats) if not pstats.empty else 0
     last_run = lineage["finished_at"].dropna().iloc[0] if not lineage.empty and lineage["finished_at"].notna().any() else None
 
-    # ── Row 1: 4 KPI cards ──────────────────────────────────────
+
     c1, c2, c3, c4 = st.columns(4)
     c1.markdown(
         f'<div class="card-compact"><div class="label">Rows Processed</div>'
@@ -849,7 +831,7 @@ def page_lineage():
         unsafe_allow_html=True,
     )
 
-    # ── Row 2: Bar chart + Donut ────────────────────────────────
+
     col_l, col_r = st.columns(2)
     with col_l:
         if not pstats.empty:
@@ -882,11 +864,11 @@ def page_lineage():
         else:
             st.info("Quality data belum tersedia")
 
-    # ── Tabs: Lineage + Audit ──────────────────────────────────
+
     tab_a, tab_b = st.tabs(["Pipeline Lineage", "Audit Log"])
 
     with tab_a:
-        # Row 3: Timeline + Latency
+
         ca, cb = st.columns(2)
         with ca:
             if not lineage.empty and lineage["started_at"].notna().any():
@@ -914,7 +896,7 @@ def page_lineage():
                 st.plotly_chart(fig, use_container_width=True, key="latency_ts")
             else:
                 st.info("Latency data belum tersedia")
-        # Row 4: Table
+
         if not lineage.empty:
             st.dataframe(lineage, use_container_width=True, hide_index=True)
             st.download_button("Download Lineage CSV", lineage.to_csv(index=False),
@@ -949,9 +931,6 @@ def page_lineage():
             st.error(f"Audit: {e}")
 
 
-# ═══════════════════════════════════════════════════════════════
-# PAGE 5: Operations (System Health + Data Quality)
-# ═══════════════════════════════════════════════════════════════
 def page_operations():
     tab_sys, tab_dq, tab_dc, tab_log = st.tabs(["System Health", "Data Quality", "Data Catalog", "Logs"])
 
@@ -986,7 +965,7 @@ def _tab_system_health():
     container_cpu_hist = smon.get_container_cpu()
     container_mem_hist = smon.get_container_memory()
 
-    # ── Row 1: 4 KPI cards (Host resources) ───────────────────
+
     c1, c2, c3, c4 = st.columns(4)
 
     cpu_val = cpu_latest.get("usage_total", None)
@@ -1042,7 +1021,7 @@ def _tab_system_health():
     else:
         c4.markdown('<div class="card-compact"><div class="label">Containers</div><div class="value">--</div></div>', unsafe_allow_html=True)
 
-    # ── Row 2: CPU + Memory timeseries ────────────────────────
+
     col_l, col_r = st.columns(2)
     with col_l:
         if not cpu_hist.empty and len(cpu_hist) > 1:
@@ -1075,7 +1054,7 @@ def _tab_system_health():
         else:
             st.info("Memory history belum tersedia")
 
-    # ── Row 3: Container health table + Disk gauge ────────────
+
     col_l2, col_r2 = st.columns([3, 2])
     with col_l2:
         st.markdown('<div style="color:#f0f2f6;font-weight:600;margin-bottom:0.5rem">Container Status</div>', unsafe_allow_html=True)
@@ -1163,7 +1142,7 @@ def _tab_system_health():
             fig.update_layout(paper_bgcolor="#0f131b", font_color="#9ba3af", height=200, margin=dict(l=10, r=10, t=30, b=10))
             gc3.plotly_chart(fig, use_container_width=True, key="disk_gauge")
 
-    # ── Row 4: Container resource trends ──────────────────────
+
     col_l3, col_r3 = st.columns(2)
     with col_l3:
         if not container_cpu_hist.empty and len(container_cpu_hist) > 1:
@@ -1204,7 +1183,7 @@ def _tab_data_quality():
     null_heatmap = dq.get_null_heatmap()
     freshness = dq.get_freshness()
 
-    # ── Row 1: 4 KPI cards ───────────────────────────────────
+
     c1, c2, c3, c4 = st.columns(4)
 
     if not dq_summary.empty:
@@ -1244,7 +1223,7 @@ def _tab_data_quality():
         unsafe_allow_html=True,
     )
 
-    # ── Row 2: Null heatmap + Freshness ───────────────────────
+
     col_l, col_r = st.columns(2)
     with col_l:
         st.markdown('<div style="color:#f0f2f6;font-weight:600;margin-bottom:0.5rem">Null % Heatmap</div>', unsafe_allow_html=True)
@@ -1294,7 +1273,7 @@ def _tab_data_quality():
         else:
             st.info("Freshness data belum tersedia.")
 
-    # ── Row 3: Profiling details table ────────────────────────
+
     st.markdown('<div style="color:#f0f2f6;font-weight:600;margin-bottom:0.5rem">Column Profiling Stats</div>', unsafe_allow_html=True)
     if not dq_latest.empty:
         display = dq_latest.copy()
@@ -1316,7 +1295,7 @@ def _tab_data_quality():
     else:
         st.info("Profiling data belum tersedia.")
 
-    # ── Row 4: Validation history timeline ────────────────────
+
     if not dq_history.empty:
         st.divider()
         st.markdown('<div style="color:#f0f2f6;font-weight:600;margin-bottom:0.5rem">Validation History</div>', unsafe_allow_html=True)
@@ -1364,7 +1343,7 @@ def _tab_data_catalog():
     glossary = dc.get_business_glossary()
     edges = dc.get_lineage_edges()
 
-    # ── Row 1: Lineage Graph (Sankey) ──────────────────────────
+
     st.markdown('<div style="color:#f0f2f6;font-weight:600;margin-bottom:0.5rem">Data Lineage</div>', unsafe_allow_html=True)
     if edges:
         all_nodes = set()
@@ -1390,7 +1369,7 @@ def _tab_data_catalog():
     else:
         st.info("Lineage edges belum tersedia.")
 
-    # ── Row 2: Table Browser ───────────────────────────────────
+
     st.divider()
     st.markdown('<div style="color:#f0f2f6;font-weight:600;margin-bottom:0.5rem">Table Browser</div>', unsafe_allow_html=True)
 
@@ -1432,7 +1411,7 @@ def _tab_data_catalog():
     else:
         st.info("Tidak ada tabel ditemukan di database.")
 
-    # ── Row 2.5: Column Lineage (selected table) ──────────────
+
     if tables and selected_table:
         st.divider()
         st.markdown('<div style="color:#f0f2f6;font-weight:600;margin-bottom:0.5rem">Column-Level Lineage</div>', unsafe_allow_html=True)
@@ -1462,7 +1441,7 @@ def _tab_data_catalog():
             else:
                 st.info(f"No downstream lineage for {selected_table}")
 
-    # ── Row 3: Business Glossary ──────────────────────────────
+
     if not glossary.empty:
         st.divider()
         st.markdown('<div style="color:#f0f2f6;font-weight:600;margin-bottom:0.5rem">Business Glossary</div>', unsafe_allow_html=True)
@@ -1487,7 +1466,7 @@ def _tab_logs():
 
     logs_df = logexp.get_app_logs(service=svc, level=lvl, limit=200)
 
-    # ── KPI row ──────────────────────────────────────────────
+
     if not logs_df.empty:
         errors = len(logs_df[logs_df["level"] == "ERROR"])
         warnings = len(logs_df[logs_df["level"] == "WARNING"])
@@ -1545,7 +1524,7 @@ def _tab_logs():
         else:
             st.info("Pipeline error summary belum tersedia.")
 
-    # ── Alert History ─────────────────────────────────────────
+
     st.divider()
     st.markdown('<div style="color:#f0f2f6;font-weight:600;margin-bottom:0.5rem">Recent Alerts</div>', unsafe_allow_html=True)
     alert_df = logexp.get_alert_history(30)
@@ -1559,7 +1538,6 @@ def _tab_logs():
         st.info("No alerts recorded.")
 
 
-# ─── Routing ─────────────────────────────────────────────────
 pages = {
     "Market Overview": page_overview,
     "Volatility Analytics": page_model,
@@ -1568,7 +1546,6 @@ pages = {
 }
 pages[page]()
 
-# ─── Auto-refresh ────────────────────────────────────────────
 countdown_placeholder = st.empty()
 for remaining in range(DASHBOARD_REFRESH_SECONDS, 0, -1):
     countdown_placeholder.markdown(

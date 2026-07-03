@@ -1,7 +1,7 @@
-# =============================================================
-# monitoring/grafana/provisioning/datasources/datasources.yaml
-# Auto-provision datasource PostgreSQL saat Grafana start
-# =============================================================
+
+
+
+
 
 apiVersion: 1
 
@@ -19,7 +19,7 @@ datasources:
       maxOpenConns: 10
       maxIdleConns: 10
       connMaxLifetime: 14400
-      postgresVersion: 1500   # PostgreSQL 15
+      postgresVersion: 1500
       timescaledb: false
     isDefault: true
     editable: false

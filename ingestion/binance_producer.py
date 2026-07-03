@@ -1,11 +1,3 @@
-"""
-ingestion/binance_producer.py
-==============================
-Binance @trade WebSocket → Kafka btc_ticker_raw
-- Exponential backoff, max 5 retries, lalu Telegram alert
-- Pesan malformed → btc_ticker_dlq
-"""
-
 import json
 import logging
 import os
@@ -34,11 +26,9 @@ BINANCE_HOST            = "stream.binance.com"
 BINANCE_WS_PATH         = "/ws/btcusdt@trade"
 MAX_RETRIES             = 5
 
-# ─── Encryption (Kafka in-transit) ─────────────────────────────
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
 _cipher = Fernet(ENCRYPTION_KEY.encode()) if ENCRYPTION_KEY else None
 
-# DNS-over-HTTPS resolver untuk bypass DNS hijacking (ISP Indonesia)
 DOH_URL = "https://dns.google/resolve"
 
 
@@ -93,10 +83,10 @@ def on_message(ws, message: str):
         if not REQUIRED_FIELDS.issubset(data.keys()):
             raise ValueError(f"Missing fields: {REQUIRED_FIELDS - data.keys()}")
         payload = {
-            "event_time": data["T"],   # ms epoch, Spark akan parse
+            "event_time": data["T"],
             "symbol":     data["s"],
             "trade_id":   data["t"],
-            "price":      data["p"],   # string, Spark cast ke double
+            "price":      data["p"],
             "quantity":   data["q"],
             "is_buyer_mm": data.get("m", False),
         }
@@ -148,7 +138,7 @@ def main():
     global producer
     producer = create_producer()
 
-    # Resolve IP asli via DoH (bypass DNS hijacking)
+
     resolved_ip = resolve_via_doh(BINANCE_HOST)
     if not resolved_ip:
         logger.error("Gagal resolve %s via DoH — fallback ke DNS sistem (rentan hijack)", BINANCE_HOST)
@@ -189,7 +179,7 @@ def main():
             sslopt={"server_hostname": BINANCE_HOST},
             host=BINANCE_HOST,
         )
-        # Jika berhasil connect sebelumnya, reset counter
+
         if _connected_successfully:
             attempt = 0
 

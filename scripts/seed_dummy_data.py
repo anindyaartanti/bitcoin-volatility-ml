@@ -1,19 +1,3 @@
-"""
-scripts/seed_dummy_data.py
-==========================
-Seed PostgreSQL dengan data dummy untuk testing dashboard.
-
-Semua tabel utama diisi data sintetis 24 jam:
-  - btc_ohlc_1m     (1440 rows)
-  - sentiment_30m   (48 rows)
-  - volatility_pred (1440 rows)
-  - pipeline_lineage (15 rows)
-  - audit_log       (10 rows)
-
-Usage:
-    python scripts/seed_dummy_data.py
-"""
-
 import os
 import random
 from datetime import datetime, timedelta, timezone
@@ -21,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 
-# ─── Konfigurasi koneksi ──────────────────────────────────────
 PG_HOST = os.getenv("PG_HOST", "localhost")
 PG_PORT = int(os.getenv("PG_PORT", "5434"))
 PG_DB = os.getenv("PG_DB", "btcdb")
@@ -32,7 +15,7 @@ RANDOM_SEED = 42
 random.seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 
-N_MINUTES = 1440  # 24 jam
+N_MINUTES = 1440
 
 
 def _conn():
@@ -43,9 +26,7 @@ def _conn():
     )
 
 
-# ─── 1. Generate OHLC data ────────────────────────────────────
 def generate_ohlc() -> pd.DataFrame:
-    """Generate 24 jam BTC price random walk + volume + volatility."""
     now = datetime.now(tz=timezone.utc).replace(second=0, microsecond=0)
     base_price = 30000.0
     prices = [base_price]
@@ -81,9 +62,7 @@ def generate_ohlc() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ─── 2. Generate sentiment data ───────────────────────────────
 def generate_sentiment() -> pd.DataFrame:
-    """Generate 24 jam sentimen (30-min windows)."""
     now = datetime.now(tz=timezone.utc).replace(second=0, microsecond=0)
     rows = []
     for i in range(48):
@@ -112,9 +91,7 @@ def generate_sentiment() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ─── 3. Generate prediction data ──────────────────────────────
 def generate_predictions(ohlc: pd.DataFrame, sent: pd.DataFrame) -> pd.DataFrame:
-    """Generate prediksi volatilitas berdasarkan OHLC + sentimen."""
     models = ["v1", "v2", "v3"]
     now = datetime.now(tz=timezone.utc).replace(second=0, microsecond=0)
     model_versions = (
@@ -156,9 +133,7 @@ def generate_predictions(ohlc: pd.DataFrame, sent: pd.DataFrame) -> pd.DataFrame
     return pd.DataFrame(rows)
 
 
-# ─── 4. Generate pipeline lineage ─────────────────────────────
 def generate_lineage() -> pd.DataFrame:
-    """Generate 15 pipeline runs (3 pipelines × 5 runs)."""
     now = datetime.now(tz=timezone.utc)
     pipelines = [
         ("spark_streaming", "btc_ticker_raw", "btc_ohlc_1m", 1440, 5),
@@ -181,9 +156,7 @@ def generate_lineage() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ─── 5. Generate audit log ────────────────────────────────────
 def generate_audit() -> pd.DataFrame:
-    """Generate 10 audit entries."""
     now = datetime.now(tz=timezone.utc)
     tables = ["btc_ohlc_1m", "sentiment_30m", "volatility_pred"]
     ops = ["INSERT", "UPDATE", "DELETE"]
@@ -199,7 +172,6 @@ def generate_audit() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ─── Insert ke PostgreSQL ─────────────────────────────────────
 def insert_df(conn, df: pd.DataFrame, table: str):
     with conn.cursor() as cur:
         cols = df.columns.tolist()

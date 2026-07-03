@@ -1,10 +1,10 @@
 #!/bin/bash
-# =============================================================
-# trino/init-schema.sh
-# Apply DDL untuk mendaftarkan MinIO Parquet schema ke Hive
-# Usage: bash trino/init-schema.sh
-# Prasyarat: Container trino harus running
-# =============================================================
+
+
+
+
+
+
 set -euo pipefail
 
 TRINO_CONTAINER="trino"

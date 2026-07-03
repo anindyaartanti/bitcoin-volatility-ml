@@ -1,15 +1,3 @@
-"""
-prefect/flows/training_flow.py
-================================
-Prefect flow: model-training
-- Buat/replace PostgreSQL view v_ml_features (JOIN OHLC + sentimen, forward-fill)
-- Extract features dari view
-- Train XGBoost dengan TimeSeriesSplit 5-fold + StandardScaler
-- Log ke MLflow, promote ke Production jika MAE < threshold
-- Record lineage ke pipeline_lineage via PgBouncer
-- Schedule: setiap Senin 02:00 UTC
-"""
-
 import json
 import logging
 import os
@@ -36,7 +24,6 @@ from xgboost import XGBRegressor
 
 logger = logging.getLogger("training_flow")
 
-# ─── Env ─────────────────────────────────────────────────────
 _PG_HOST = os.getenv("APP_DB_HOST", "postgres")
 _PG_PORT = os.getenv("APP_DB_PORT", "5432")
 _PG_DB   = os.getenv("APP_DB_NAME", "btcdb")
@@ -76,7 +63,6 @@ XGB_PARAMS = dict(
     tree_method="hist",
 )
 
-# ─── View SQL ────────────────────────────────────────────────
 _VIEW_SQL = """
 CREATE OR REPLACE VIEW v_ml_features AS
 WITH
@@ -195,7 +181,6 @@ def _send_telegram(msg: str) -> None:
         pass
 
 
-# ─── Task 1: Extract features ─────────────────────────────────
 @task(retries=2, retry_delay_seconds=30)
 def extract_features() -> pd.DataFrame:
     log = get_run_logger()
@@ -212,7 +197,6 @@ def extract_features() -> pd.DataFrame:
     return df
 
 
-# ─── Task 2: Train model ──────────────────────────────────────
 @task(retries=2, retry_delay_seconds=30)
 def train_model(df: pd.DataFrame):
     log = get_run_logger()
@@ -241,11 +225,11 @@ def train_model(df: pd.DataFrame):
         rmse_scores.append(float(np.sqrt(mean_squared_error(y_val, y_pred))))
         log.info("Fold %d — MAE=%.6f RMSE=%.6f", fold + 1, mae_scores[-1], rmse_scores[-1])
 
-    # Final model: fit pada seluruh dataset
+
     final_scaler = StandardScaler()
     X_all = final_scaler.fit_transform(X)
     final_model = XGBRegressor(**XGB_PARAMS)
-    # Early stopping butuh eval_set — pakai 10% terakhir sebagai val internal
+
     split = int(len(X_all) * 0.9)
     final_model.fit(
         X_all[:split], y[:split],
@@ -266,7 +250,6 @@ def train_model(df: pd.DataFrame):
     return final_model, final_scaler, metrics
 
 
-# ─── Task 3: Log ke MLflow ────────────────────────────────────
 @task(retries=2, retry_delay_seconds=30)
 def log_to_mlflow(model_tuple) -> dict:
     log = get_run_logger()
@@ -299,7 +282,7 @@ def log_to_mlflow(model_tuple) -> dict:
     if mae < MAE_THRESHOLD:
         client = MlflowClient(tracking_uri=MLFLOW_URI)
 
-        # Cek champion saat ini
+
         champion_mae = None
         try:
             champion_mv = client.get_model_version_by_alias(MODEL_NAME, "production")
@@ -342,7 +325,6 @@ def log_to_mlflow(model_tuple) -> dict:
     return {"run_id": run_id, "promoted": promoted, "mae": mae}
 
 
-# ─── Task 4: Record lineage ───────────────────────────────────
 @task(retries=2, retry_delay_seconds=30)
 def record_lineage(metrics: dict, mlflow_result: dict, n_rows: int) -> None:
     log = get_run_logger()
@@ -381,7 +363,6 @@ def record_lineage(metrics: dict, mlflow_result: dict, n_rows: int) -> None:
         log.warning("Gagal catat pipeline_lineage: %s", e)
 
 
-# ─── Failure Handler ──────────────────────────────────────────
 def _handle_training_failure(error: str = ""):
     log = get_run_logger()
     params_json = json.dumps({"error": error[:500]}) if error else "{}"
@@ -405,7 +386,6 @@ def _handle_training_failure(error: str = ""):
         log.warning("Gagal catat pipeline_lineage failure: %s", e)
 
 
-# ─── Main Flow ────────────────────────────────────────────────
 @flow(name="model-training", log_prints=True)
 def training_flow() -> None:
     try:
@@ -418,9 +398,7 @@ def training_flow() -> None:
         raise
 
 
-# ─── Deployment helpers ───────────────────────────────────────
 def deploy() -> None:
-    """Dipanggil oleh deploy_all.py untuk mendaftarkan deployment ke Prefect."""
     Deployment.build_from_flow(
         flow=training_flow,
         name="model-training-daily",

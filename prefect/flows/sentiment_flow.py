@@ -1,13 +1,3 @@
-"""
-prefect/flows/sentiment_flow.py
-================================
-Prefect flow: sentiment_pipeline
-- Schedule: setiap 30 menit
-- Task 1: Tweet Harvest → Parquet ke MinIO (tweets/YYYY/MM/DD/HH_MM.parquet)
-- Task 2: FinVADER scoring → Great Expectations validation → sentiment_30m via PgBouncer
-- Retry 3x delay 5 menit. Gagal → pipeline_lineage status=failed + forward-fill stale
-"""
-
 import json
 import logging
 import os
@@ -24,7 +14,6 @@ from prefect import flow, task
 from prefect.client.schemas.schedules import IntervalSchedule
 logger = logging.getLogger("sentiment_flow")
 
-# ─── Env ─────────────────────────────────────────────────────
 MINIO_ENDPOINT   = os.getenv("MINIO_ENDPOINT", "http://minio:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "k4ipbd_minio_2026")
@@ -43,7 +32,6 @@ TWITTER_BUCKET   = "twitter-raw"
 KEYWORDS         = ["bitcoin", "BTC", "crypto"]
 
 
-# ─── Helpers ─────────────────────────────────────────────────
 def _pg_conn(host: str, port: int):
     return psycopg2.connect(
         host=host, port=port, dbname=PG_DB, user=PG_USER, password=PG_PASSWORD
@@ -63,7 +51,6 @@ def _send_telegram(msg: str):
         pass
 
 
-# ─── Circuit breaker ─────────────────────────────────────────
 def _on_open(cb):
     msg = f"[sentiment_flow] Circuit breaker OPEN: PostgreSQL gagal {cb.fail_counter}x"
     logger.error(msg)
@@ -92,10 +79,8 @@ def _s3fs_client():
     )
 
 
-# ─── Task 1: Harvest tweets → MinIO ──────────────────────────
 @task(retries=3, retry_delay_seconds=300)
 def harvest_tweets(window_start: datetime, run_id: str) -> str:
-    """Jalankan tweet-harvest, simpan Parquet ke MinIO, log pipeline_lineage."""
     import pandas as pd
 
     path = f"tweets/{window_start:%Y/%m/%d/%H_%M}.parquet"
@@ -142,7 +127,7 @@ def harvest_tweets(window_start: datetime, run_id: str) -> str:
     combined = pd.concat(all_rows, ignore_index=True)
     combined = combined.drop_duplicates(subset=["id_str"]) if "id_str" in combined.columns else combined
 
-    # Upload ke MinIO via s3fs
+
     fs = _s3fs_client()
     with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp_f:
         combined.to_parquet(tmp_f.name, index=False)
@@ -152,7 +137,7 @@ def harvest_tweets(window_start: datetime, run_id: str) -> str:
         f.write(Path(tmp_path).read_bytes())
     Path(tmp_path).unlink(missing_ok=True)
 
-    # Log pipeline_lineage
+
     try:
         conn = _pg_conn(PGBOUNCER_HOST, PGBOUNCER_PORT)
         with conn.cursor() as cur:
@@ -183,7 +168,6 @@ def harvest_tweets(window_start: datetime, run_id: str) -> str:
     return path
 
 
-# ─── Task 2: Score → validate → write sentiment_30m ──────────
 @task(retries=3, retry_delay_seconds=300)
 def score_and_store(parquet_path: str, window_start: datetime, run_id: str):
     import numpy as np
@@ -191,14 +175,14 @@ def score_and_store(parquet_path: str, window_start: datetime, run_id: str):
 
     fs = _s3fs_client()
 
-    # Baca Parquet dari MinIO
+
     with fs.open(f"{TWITTER_BUCKET}/{parquet_path}", "rb") as f:
         df = pd.read_parquet(f)
 
     if df.empty:
         raise ValueError("Parquet file kosong.")
 
-    # ── FinVADER scoring ─────────────────────────────────────
+
     text_col = next((c for c in ["full_text", "text", "tweet_text"] if c in df.columns), None)
     if text_col is None:
         raise ValueError("Kolom teks tidak ditemukan di Parquet.")
@@ -220,7 +204,7 @@ def score_and_store(parquet_path: str, window_start: datetime, run_id: str):
 
     df["compound"] = df[text_col].fillna("").apply(_score)
 
-    # ── Great Expectations inline validation ─────────────────
+
     errors = []
     required_cols = [text_col, "compound"]
     for col in required_cols:
@@ -234,7 +218,7 @@ def score_and_store(parquet_path: str, window_start: datetime, run_id: str):
     tweet_count = len(df)
     data_quality = "low_sample" if tweet_count < 5 else "ok"
 
-    # ── Aggregations ─────────────────────────────────────────
+
     compound_mean = float(df["compound"].mean())
     pos_ratio     = float((df["compound"] > 0.05).sum() / tweet_count)
     neg_ratio     = float((df["compound"] < -0.05).sum() / tweet_count)
@@ -249,7 +233,7 @@ def score_and_store(parquet_path: str, window_start: datetime, run_id: str):
 
     window_end = window_start + timedelta(minutes=30)
 
-    # ── Write ke sentiment_30m via PgBouncer + circuit breaker
+
     @pg_breaker
     def _write():
         conn = _pg_conn(PGBOUNCER_HOST, PGBOUNCER_PORT)
@@ -293,19 +277,18 @@ def score_and_store(parquet_path: str, window_start: datetime, run_id: str):
     )
 
 
-# ─── Failure handler: update lineage + forward-fill stale ────
 def _handle_failure(run_id: str, window_start: datetime, error: str):
     window_end = window_start + timedelta(minutes=30)
     try:
         conn = _pg_conn(PG_DIRECT_HOST, PG_DIRECT_PORT)
         with conn.cursor() as cur:
-            # Update pipeline_lineage status = failed
+
             cur.execute(
                 "UPDATE pipeline_lineage SET quality_status = 'failed', finished_at = NOW() "
                 "WHERE run_id = %s::uuid",
                 (run_id,),
             )
-            # Forward-fill: ambil baris sukses terakhir
+
             cur.execute(
                 """
                 SELECT compound_score, positive_ratio, negative_ratio,
@@ -339,7 +322,6 @@ def _handle_failure(run_id: str, window_start: datetime, error: str):
     )
 
 
-# ─── Main Flow ────────────────────────────────────────────────
 @flow(name="sentiment_pipeline", log_prints=True)
 def sentiment_pipeline():
     import uuid

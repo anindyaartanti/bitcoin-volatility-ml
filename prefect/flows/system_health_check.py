@@ -1,13 +1,3 @@
-"""
-prefect/flows/system_health_check.py
-======================================
-Prefect flow: system-health-check
-- Cek status semua container via Docker SDK
-- Cek host resources via psutil
-- Write ke pipeline_lineage + Telegram alert jika anomali
-- Schedule: setiap 60 detik
-"""
-
 import json
 import logging
 import os

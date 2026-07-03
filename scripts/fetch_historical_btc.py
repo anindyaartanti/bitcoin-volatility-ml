@@ -1,18 +1,3 @@
-#!/usr/bin/env python3
-"""
-scripts/fetch_historical_btc.py
-================================
-Sekali jalan: Fetch historical BTC/USDT 1m OHLC dari Binance API
-dan insert ke PostgreSQL btc_ohlc_1m.
-
-Untuk bootstrap initial model training.
-
-Usage:
-    python scripts/fetch_historical_btc.py --days 30
-    python scripts/fetch_historical_btc.py --hours 720
-    HOURS_BACK=720 python scripts/fetch_historical_btc.py
-"""
-
 import argparse
 import logging
 import os
@@ -32,7 +17,6 @@ logging.basicConfig(
 )
 log = logging.getLogger("fetch_historical")
 
-# ─── Config ──────────────────────────────────────────────────
 HOURS_BACK = int(os.getenv("HOURS_BACK", "48"))
 BINANCE_DOMAIN = "api.binance.com"
 DOH_URL = "https://dns.google/resolve"

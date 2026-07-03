@@ -1,4 +1,4 @@
-# Force LF line endings for shell scripts (prevent "not found" errors in Docker)
+# Force LF line endings for shell scripts
 *.sh text eol=lf
 
 # Binary files — no conversion

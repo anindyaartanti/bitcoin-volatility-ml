@@ -2,7 +2,6 @@ FROM prefecthq/prefect:2-python3.12
 
 USER root
 
-# System dependencies: Node.js + Chromium untuk tweet-harvest
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       curl gnupg \

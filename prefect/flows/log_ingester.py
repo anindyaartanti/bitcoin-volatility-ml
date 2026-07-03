@@ -1,13 +1,3 @@
-"""
-prefect/flows/log_ingester.py
-===============================
-Prefect flow: log-ingester
-- Read recent pipeline_logs (pipeline_lineage + audit_log + system events)
-- Aggregate log-level stats: ERROR/WARNING count per service per hour
-- Store structured summary ke app_logs
-- Schedule: setiap 5 menit
-"""
-
 import json
 import logging
 import os
@@ -51,7 +41,6 @@ def _send_telegram(msg: str) -> None:
 
 @task(retries=2, retry_delay_seconds=30)
 def collect_pipeline_events() -> dict:
-    """Scan pipeline_lineage and audit_log for recent events, aggregate by service/level."""
     conn = _pg_conn()
     try:
         import pandas as pd
@@ -122,7 +111,7 @@ def store_log_summary(stats: dict) -> None:
                     """,
                     (service, level, message, extra),
                 )
-            # Cleanup old logs (> 30 days)
+
             cur.execute(
                 "DELETE FROM app_logs WHERE timestamp < NOW() - INTERVAL '30 days'"
             )

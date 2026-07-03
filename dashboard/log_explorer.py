@@ -1,9 +1,3 @@
-"""
-dashboard/log_explorer.py
-==========================
-Query app_logs, pipeline_lineage for log explorer dashboard.
-"""
-
 import pandas as pd
 from db import query_pg
 

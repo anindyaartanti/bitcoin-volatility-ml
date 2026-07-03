@@ -1,12 +1,12 @@
 #!/bin/bash
-# security/postgres/create_multiple_db.sh
-# Membuat beberapa database sekaligus saat PostgreSQL container pertama start
-# Dipanggil sebelum init.sql (prefix 00_)
+
+
+
 
 set -e
 
-# POSTGRES_MULTIPLE_DATABASES diisi dari .env, dipisah koma
-# Contoh: btcdb,airflowdb,mlflowdb
+
+
 
 create_user_and_database() {
     local database=$1
@@ -18,7 +18,7 @@ create_user_and_database() {
 EOSQL
 }
 
-# ─── Marquez: dedicated DB + user (Flyway DDL) ─────────────
+
 create_marquez_user() {
     echo ">>> Membuat marquez user & database"
     psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
@@ -42,5 +42,5 @@ if [ -n "$POSTGRES_MULTIPLE_DATABASES" ]; then
     echo "=== Semua database berhasil dibuat ==="
 fi
 
-# Marquez database (always created, regardless of POSTGRES_MULTIPLE_DATABASES)
+
 create_marquez_user
