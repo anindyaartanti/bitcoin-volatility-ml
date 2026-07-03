@@ -5,6 +5,5 @@ RUN pip install --no-cache-dir \
     "mlflow==2.10.2" "xgboost==2.0.3" "scikit-learn==1.3.2" \
     joblib "confluent-kafka==2.2.0" numpy cryptography
 
-# OpenLineage Spark listener JAR (auto lineage capture)
 RUN wget -q https://repo1.maven.org/maven2/io/openlineage/openlineage-spark_2.12/1.50.0/openlineage-spark_2.12-1.50.0.jar \
     -O /opt/spark/jars/openlineage-spark.jar

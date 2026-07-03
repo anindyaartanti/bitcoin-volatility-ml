@@ -1,15 +1,3 @@
-"""
-processing/stream_processor.py
-================================
-PySpark Structured Streaming: Kafka @trade → tumbling window 1m → btc_ohlc_1m
-- Checkpoint ke s3a://checkpoints/spark-streaming/
-- Tulis via PgBouncer (transaction pooling)
-- pybreaker circuit breaker di setiap PostgreSQL write
-- Log pipeline_lineage setelah setiap micro-batch
-- XGBoost model cache fallback /tmp/xgb_model_cache
-- Real-time inference → volatility_pred table + Kafka topic
-"""
-
 import json
 import logging
 import os
@@ -52,7 +40,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("stream_processor")
 
-# ─── Env ─────────────────────────────────────────────────────
 PGBOUNCER_HOST  = os.getenv("PGBOUNCER_HOST", "pgbouncer")
 PGBOUNCER_PORT  = int(os.getenv("PGBOUNCER_PORT", "6432"))
 PG_DIRECT_HOST  = os.getenv("APP_DB_HOST", "postgres")
@@ -66,13 +53,11 @@ XGB_CACHE_PATH  = "/tmp/xgb_model_cache"
 TELEGRAM_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT   = os.getenv("TELEGRAM_CHAT_ID", "")
 
-# ─── Encryption (Kafka in-transit) ──────────────────────────────
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
 
 
 @F.udf(StringType())
 def decrypt_udf(encrypted_bytes):
-    """Decrypt Kafka message value encrypted with Fernet (AES-128-CBC + HMAC)."""
     if encrypted_bytes is None:
         return None
     _key = os.environ.get("ENCRYPTION_KEY", "")
@@ -92,7 +77,6 @@ FEATURE_COLS = [
     "compound_score", "positive_ratio", "tweet_count", "minutes_since_sentiment",
 ]
 
-# ─── Sentiment cache ──────────────────────────────────────────
 _sentiment_cache = {
     "compound_score": 0.0,
     "positive_ratio": 0.5,
@@ -101,7 +85,6 @@ _sentiment_cache = {
     "updated_at": None,
 }
 
-# ─── OHLC row buffer untuk rolling features ──────────────────
 from collections import deque
 _OHLC_BUFFER_SIZE = 30
 _ohlc_buffer = deque(maxlen=_OHLC_BUFFER_SIZE)
@@ -121,9 +104,8 @@ def _append_to_buffer(rows: "pd.DataFrame") -> None:
             "volatility": float(row["volatility"]) if row["volatility"] is not None else None,
         })
 
-# ─── Schema pesan @trade dari Binance ────────────────────────
 TRADE_SCHEMA = StructType([
-    StructField("event_time", LongType(),   True),  # ms epoch
+    StructField("event_time", LongType(),   True),
     StructField("symbol",     StringType(), True),
     StructField("trade_id",   LongType(),   True),
     StructField("price",      StringType(), True),
@@ -131,7 +113,6 @@ TRADE_SCHEMA = StructType([
     StructField("is_buyer_mm", BooleanType(), True),
 ])
 
-# ─── Circuit breaker ─────────────────────────────────────────
 def _on_circuit_open(cb):
     msg = f"[stream_processor] Circuit breaker OPEN: PostgreSQL write gagal {cb.fail_counter}x"
     logger.error(msg)
@@ -144,7 +125,6 @@ pg_breaker = pybreaker.CircuitBreaker(
     reset_timeout=60,
     listeners=[pybreaker.CircuitBreakerListener()],
 )
-# Override state change listener
 pg_breaker.add_listeners(type(
     "_Listener", (pybreaker.CircuitBreakerListener,),
     {"state_change": staticmethod(lambda cb, old, new: _on_circuit_open(cb) if str(new) == "open" else None)}
@@ -172,7 +152,6 @@ def _pg_conn(host: str, port: int):
 
 
 def _log_audit_direct(detail: str):
-    """Fallback direct connection ke PostgreSQL saat circuit open."""
     try:
         conn = _pg_conn(PG_DIRECT_HOST, PG_DIRECT_PORT)
         with conn.cursor() as cur:
@@ -187,8 +166,7 @@ def _log_audit_direct(detail: str):
         logger.error("Fallback audit log gagal: %s", e)
 
 
-# ─── Inference artifacts (shared by sentiment cache & write_batch) ─
-_INFERENCE_ARTIFACTS = None  # (model, scaler, model_version)
+_INFERENCE_ARTIFACTS = None
 
 def _load_model_version(client) -> dict:
     try:
@@ -207,7 +185,6 @@ def _load_model_version(client) -> dict:
 
 
 def load_model_and_scaler():
-    """Load XGBoost model + scaler dari MLflow, cache ke /tmp."""
     global _INFERENCE_ARTIFACTS
     import pickle, json, joblib
     from mlflow.tracking import MlflowClient
@@ -282,7 +259,6 @@ def start_model_refresh_thread():
     t.start()
 
 
-# ─── Sentiment cache refresh ─────────────────────────────────
 def refresh_sentiment_cache():
     try:
         conn = _pg_conn(PG_DIRECT_HOST, PG_DIRECT_PORT)
@@ -324,7 +300,6 @@ def start_sentiment_cache_thread():
     t.start()
 
 
-# ─── Volatility pred table DDL ────────────────────────────────
 def ensure_volatility_pred_table(conn):
     with conn.cursor() as cur:
         cur.execute(
@@ -352,9 +327,7 @@ def ensure_volatility_pred_table(conn):
     conn.commit()
 
 
-# ─── Write predictions ────────────────────────────────────────
 def write_predictions(pred_rows, conn):
-    """Tulis prediksi ke volatility_pred dan produce ke Kafka topic volatility_pred."""
     with conn.cursor() as cur:
         for _, row in pred_rows.iterrows():
             cur.execute(
@@ -397,7 +370,6 @@ def write_predictions(pred_rows, conn):
         logger.warning("Gagal produce prediksi ke Kafka: %s", e)
 
 
-# ─── SparkSession ─────────────────────────────────────────────
 def create_spark_session() -> SparkSession:
     spark = (
         SparkSession.builder
@@ -416,7 +388,6 @@ def create_spark_session() -> SparkSession:
     return spark
 
 
-# ─── UDF: volatility = stddev of per-trade returns ───────────
 @F.udf(DoubleType())
 def calc_volatility(prices):
     if not prices or len(prices) < 2:
@@ -433,7 +404,6 @@ def calc_volatility(prices):
         return None
 
 
-# ─── Streaming pipeline ───────────────────────────────────────
 def build_stream(spark: SparkSession):
     raw = (
         spark.readStream
@@ -451,7 +421,7 @@ def build_stream(spark: SparkSession):
             F.from_json(decrypt_udf(F.col("value")), TRADE_SCHEMA).alias("d")
         )
         .select(
-            # event_time: ms epoch → TimestampType
+
             (F.col("d.event_time") / 1000).cast("timestamp").alias("event_time"),
             F.col("d.price").cast(DoubleType()).alias("price"),
             F.col("d.quantity").cast(DoubleType()).alias("quantity"),
@@ -482,7 +452,6 @@ def build_stream(spark: SparkSession):
     return windowed
 
 
-# ─── ForeachBatch: write via PgBouncer + inference + lineage ──
 def write_batch(batch_df, batch_id: int, xgb_model=None, scaler=None, model_version="cached"):
     if batch_df.rdd.isEmpty():
         logger.info("Batch %d kosong.", batch_id)
@@ -537,7 +506,7 @@ def write_batch(batch_df, batch_id: int, xgb_model=None, scaler=None, model_vers
         logger.error("Batch %d write error: %s", batch_id, e)
         raise
 
-    # ── Feature engineering via buffer ─────────────────────────
+
     _append_to_buffer(rows)
 
     if len(_ohlc_buffer) < 6:
@@ -597,7 +566,7 @@ def write_batch(batch_df, batch_id: int, xgb_model=None, scaler=None, model_vers
             except Exception as e:
                 logger.warning("Batch %d: gagal write_predictions: %s", batch_id, e)
 
-    # ── Log pipeline_lineage ──────────────────────────────────
+
     try:
         conn = _pg_conn(PGBOUNCER_HOST, PGBOUNCER_PORT)
         with conn.cursor() as cur:
@@ -629,7 +598,6 @@ def write_batch(batch_df, batch_id: int, xgb_model=None, scaler=None, model_vers
         logger.warning("Gagal log pipeline_lineage: %s", e)
 
 
-# ─── Main ─────────────────────────────────────────────────────
 def main():
     logger.info("Memulai Spark Structured Streaming job...")
     load_model_and_scaler()

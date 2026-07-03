@@ -1,15 +1,8 @@
-"""
-dashboard/data_quality.py
-==========================
-Query data quality stats & validation results from PostgreSQL.
-"""
-
 import pandas as pd
 from db import query_pg
 
 
 def get_latest_dq_stats() -> pd.DataFrame:
-    """Latest profiling stats per table per column."""
     return query_pg(
         """
         SELECT DISTINCT ON (table_name, column_name)
@@ -23,7 +16,6 @@ def get_latest_dq_stats() -> pd.DataFrame:
 
 
 def get_dq_summary() -> pd.DataFrame:
-    """Per-table quality summary: overall completeness & distinct health."""
     return query_pg(
         """
         WITH latest AS (
@@ -48,7 +40,6 @@ def get_dq_summary() -> pd.DataFrame:
 
 
 def get_dq_history() -> pd.DataFrame:
-    """Validation check pass/fail history from pipeline_lineage."""
     return query_pg(
         """
         SELECT started_at, quality_status, params->>'table_name' AS table_name,
@@ -63,7 +54,6 @@ def get_dq_history() -> pd.DataFrame:
 
 
 def get_null_heatmap() -> pd.DataFrame:
-    """Null percentage matrix: rows=tables, columns=column names."""
     return query_pg(
         """
         SELECT DISTINCT ON (table_name, column_name)
@@ -75,7 +65,6 @@ def get_null_heatmap() -> pd.DataFrame:
 
 
 def get_freshness() -> pd.DataFrame:
-    """Check when each table last received new data."""
     queries = {
         "btc_ohlc_1m":     "SELECT MAX(window_start) AS last_row FROM btc_ohlc_1m",
         "sentiment_30m":   "SELECT MAX(window_start) AS last_row FROM sentiment_30m",

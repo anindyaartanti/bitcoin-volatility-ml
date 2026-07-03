@@ -1,10 +1,3 @@
-"""
-dashboard/data_catalog.py
-==========================
-Query table_metadata, business_glossary, information_schema, pipeline_lineage
-for the Data Catalog tab in Streamlit Operations.
-"""
-
 import pandas as pd
 from db import query_pg
 
@@ -105,7 +98,6 @@ def get_column_lineage(table_name: str = None) -> pd.DataFrame:
 
 
 def get_upstream_columns(table_name: str) -> pd.DataFrame:
-    """Columns that feed INTO this table."""
     return query_pg(
         f"""
         SELECT source_table, source_column, target_column, transformation
@@ -117,7 +109,6 @@ def get_upstream_columns(table_name: str) -> pd.DataFrame:
 
 
 def get_downstream_columns(table_name: str) -> pd.DataFrame:
-    """Tables/columns that consume FROM this table."""
     return query_pg(
         f"""
         SELECT target_table, target_column, source_column, transformation

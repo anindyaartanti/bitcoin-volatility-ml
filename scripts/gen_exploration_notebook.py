@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-"""Generate exploration.ipynb for market regime clustering."""
-
 import nbformat as nbf
 from pathlib import Path
 import os
@@ -24,10 +21,6 @@ def code(src):
     cells.append(nbf.v4.new_code_cell(src))
 
 
-# ════════════════════════════════════════════════════════
-# CELLS
-# ════════════════════════════════════════════════════════
-
 md("""# Eksplorasi Market Regime Clustering
 
 **Tujuan:** Menentukan jumlah cluster optimal (K) untuk market regime clustering pada data volatilitas Bitcoin + sentimen Twitter/X.
@@ -45,7 +38,6 @@ md("""# Eksplorasi Market Regime Clustering
 - Apakah fitur sentimen perlu treatment khusus sebelum clustering
 """)
 
-# ── 1. SETUP ──
 md("## 1. Setup & Load Data")
 code("""import os
 import pandas as pd
@@ -84,7 +76,6 @@ print(f"Target std:     {df['target_vol_5m'].std():.8f}")
 df.head(10)
 """)
 
-# ── 2. EDA ──
 md("## 2. Exploratory Data Analysis")
 
 code("""# 7 fitur clustering + target
@@ -171,7 +162,6 @@ else:
     print("⚠️  Kurang dari 2 fitur aktif — skip pair plot.")
 """)
 
-# ── 3. K-MEANS ──
 md("## 3. K-Means Clustering Evaluation")
 
 md("""### Fitur untuk Clustering
@@ -294,7 +284,6 @@ if n_samples < 30:
     print("     → Target: > 100 baris untuk clustering yang meaningful")
 """)
 
-# ── 4. PCA ──
 md("## 4. Visualisasi PCA 2D")
 
 code("""if n_samples >= 6:
@@ -343,7 +332,6 @@ else:
     print(f"⚠️  Butuh ≥6 sample untuk PCA, hanya ada {n_samples}.")
 """)
 
-# ── 5. CENTROID ──
 md("## 5. Analisis Centroid & Interpretasi Cluster")
 
 code("""# ─── Pilih K terbaik ───
@@ -458,7 +446,6 @@ for cluster_id, label in label_map.items():
     print(f"  Regime {cluster_id}: {color} — {label}")
 """)
 
-# ── 6. TIMELINE ──
 md("## 6. Timeline Cluster Assignment")
 code("""# Plot cluster assignment over time + BTC close price
 if n_samples > 3:
@@ -512,7 +499,6 @@ else:
     print("⚠️  Butuh >3 sampel untuk timeline, hanya ada", n_samples)
 """)
 
-# ── 7. STABILITY ──
 md("## 7. Stabilitas Cluster — Multiple Runs")
 code("""# Cek konsistensi K-Means dengan beberapa seed berbeda
 if n_samples >= 6:
@@ -542,7 +528,6 @@ else:
     BEST_SEED = 42
 """)
 
-# ── 8. KESIMPULAN ──
 md("""## 8. Kesimpulan & Rekomendasi Final
 
 ### Hasil Eksplorasi

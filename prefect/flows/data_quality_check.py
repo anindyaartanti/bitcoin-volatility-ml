@@ -1,14 +1,3 @@
-"""
-prefect/flows/data_quality_check.py
-=====================================
-Prefect flow: data-quality-check
-- Profile semua tabel (null %, distinct, min/max/mean)
-- Jalankan Great Expectations checkpoint per tabel
-- Simpan hasil ke data_quality_stats + pipeline_lineage
-- Telegram alert jika threshold breach
-- Schedule: setiap 1 jam
-"""
-
 import json
 import logging
 import os
@@ -66,7 +55,6 @@ def _send_telegram(msg: str) -> None:
 
 
 def _load_ge_context():
-    """Load GE context from bundled config inside prefect container."""
     import great_expectations as gx
     ge_root = "/opt/prefect/ge"
     context = gx.get_context(
@@ -78,7 +66,6 @@ def _load_ge_context():
 
 @task(retries=2, retry_delay_seconds=60)
 def profile_tables() -> dict:
-    """Profile all tables: compute null %, distinct, min/max/mean."""
     engine = None
     try:
         from sqlalchemy import create_engine, text
@@ -159,7 +146,6 @@ def profile_tables() -> dict:
 
 @task(retries=2, retry_delay_seconds=60)
 def store_profiling_results(profile_result: dict) -> int:
-    """Store profiling results into data_quality_stats table."""
     conn = _pg_conn()
     rows_inserted = 0
     try:
@@ -194,7 +180,6 @@ def store_profiling_results(profile_result: dict) -> int:
 
 @task(retries=1)
 def run_ge_validation() -> dict:
-    """Run Great Expectations checkpoint for all suites."""
     passed = 0
     failed = 0
     details = {}
@@ -216,7 +201,7 @@ def run_ge_validation() -> dict:
                 ) if batch_request else None
 
                 if validator is None:
-                    # Fallback: query table directly to create runtime batch
+
                     import pandas as pd
                     from sqlalchemy import create_engine
                     engine = create_engine(DB_URL)
@@ -267,7 +252,6 @@ def run_ge_validation() -> dict:
 
 @task(retries=2, retry_delay_seconds=30)
 def record_lineage_dq(ge_result: dict, profile_alerts: list, rows_stored: int) -> None:
-    """Record data quality run in pipeline_lineage."""
     quality_status = "ok" if ge_result["checks_failed"] == 0 else "failed"
     conn = _pg_conn()
     try:

@@ -1,11 +1,3 @@
-"""
-dashboard/system_monitor.py
-============================
-Query Telegraf metrics tables from PostgreSQL for System Health dashboard.
-Telegraf auto-creates tables: cpu, mem, disk, docker_container_cpu,
-docker_container_mem, docker_container_status
-"""
-
 import warnings
 from datetime import datetime, timezone
 

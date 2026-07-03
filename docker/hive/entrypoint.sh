@@ -1,6 +1,6 @@
 #!/bin/sh
-# docker/hive/entrypoint.sh
-# PostgreSQL-aware entrypoint untuk Hive Metastore
+
+
 set -e
 
 export HADOOP_HOME=/opt/hadoop-3.2.0

@@ -1,9 +1,3 @@
-"""
-dashboard/ml_observability.py
-==============================
-Query prediction vs actual, model performance, residuals for dashboard.
-"""
-
 import pandas as pd
 from db import query_pg
 
@@ -50,7 +44,6 @@ def get_latest_model_performance() -> dict:
 
 
 def get_residuals() -> pd.DataFrame:
-    """Actual - Predicted error per prediction."""
     df = get_pred_vs_actual(24)
     if not df.empty:
         df["residual"] = df["actual_vol"].astype(float) - df["predicted_vol"].astype(float)

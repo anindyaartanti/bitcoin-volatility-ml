@@ -7,7 +7,6 @@ from config import PG_HOST, PG_PORT, PG_DB, PG_USER, PG_PASSWORD, TRINO_HOST, TR
 warnings.filterwarnings("ignore", message="pandas only supports SQLAlchemy connectable")
 
 
-# ─── PostgreSQL (langsung, untuk data real-time/sederhana) ────
 @st.cache_resource
 def _pg_conn():
     import psycopg2
@@ -23,7 +22,6 @@ def query_pg(sql: str) -> pd.DataFrame:
     return pd.read_sql(sql, conn)
 
 
-# ─── Trino (federated, untuk cross-source analytics) ──────────
 @st.cache_resource
 def _trino_conn():
     from trino.dbapi import connect
@@ -42,7 +40,6 @@ def query_trino(sql: str) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=cols)
 
 
-# ─── Convenience ──────────────────────────────────────────────
 def paginate_df(df: pd.DataFrame, page_size: int = 25):
     start = st.session_state.get("page", 0) * page_size
     return df.iloc[start:start + page_size]

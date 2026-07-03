@@ -1,13 +1,3 @@
-"""
-prefect/flows/model_performance_check.py
-==========================================
-Prefect flow: model-performance-check
-- Compute production RMSE/MAE (6-hour sliding window)
-- Compare actual volatility vs predicted
-- Alert if degradation > 50% from training baseline
-- Schedule: setiap 1 jam
-"""
-
 import json
 import logging
 import os
@@ -57,7 +47,6 @@ def _send_telegram(msg: str) -> None:
 
 @task(retries=2, retry_delay_seconds=30)
 def compute_actual_volatility() -> int:
-    """Backfill actual_vol in btc_predictions: match predicted_vol_5m to actual future volatility."""
     conn = _pg_conn()
     rows_updated = 0
     try:
@@ -106,7 +95,6 @@ def compute_actual_volatility() -> int:
 
 @task(retries=2, retry_delay_seconds=30)
 def compute_production_metrics() -> dict:
-    """Sliding window RMSE/MAE over last 6 hours."""
     conn = _pg_conn()
     try:
         import pandas as pd
